@@ -137,7 +137,10 @@ class GameMap:
 
         # Cas 1 : tous identiques
         if alt[0] == alt[1] == alt[2] == alt[3]:
-            pygame.draw.polygon(surface, colors[0], pts)
+            # Vérifie si une maison est présente sur cette tuile
+            has_house = any(house.r == r and house.c == c for house in self.houses)
+            color = (255, 0, 0) if has_house else colors[0]
+            pygame.draw.polygon(surface, color, pts)
             pygame.draw.polygon(surface, (0, 0, 0), pts, 1)
             return
 
@@ -275,4 +278,4 @@ class House:
         def spawn_peep(self):
             self.life -= 50
             return Peep(self.r, self.c, self.game_map)
-    
+

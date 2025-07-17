@@ -1,4 +1,5 @@
 import pygame
+import random
 from settings import *
 from game_map import GameMap
 from peep import Peep
@@ -13,15 +14,15 @@ class Game:
         self.font = pygame.font.SysFont("consolas", 16)
         self.camera = Camera(GRID_WIDTH, GRID_HEIGHT)
         self.game_map = GameMap(GRID_WIDTH, GRID_HEIGHT)
-        self.game_map.randomize()  # Ajoute cette ligne
+        self.game_map.randomize()
         self.peeps = []
         self.running = True
 
     def spawn_initial_peeps(self, count):
-        import random
         for _ in range(count):
-            r = random.randint(0, GRID_HEIGHT)
-            c = random.randint(0, GRID_WIDTH)
+            # Correction: bornes correctes pour éviter index out of range
+            r = random.randint(0, GRID_HEIGHT - 1)
+            c = random.randint(0, GRID_WIDTH - 1)
             self.peeps.append(Peep(r, c, self.game_map))
 
     def run(self):
@@ -50,10 +51,10 @@ class Game:
         self.camera.update(dt)
         for peep in self.peeps:
             peep.update(dt)
-            # Construction automatique si possible
+            # Essayer de construire une maison
             if not peep.dead:
-                if peep.try_build_house():
-                    continue
+                peep.try_build_house()
+        
         # Retirer les peeps morts
         self.peeps = [peep for peep in self.peeps if not peep.is_removable()]
 
@@ -62,21 +63,25 @@ class Game:
         for house in self.game_map.houses:
             house.update(dt)
             if house.can_spawn_peep():
+                # Créer un nouveau peep près de la maison
                 new_peep = Peep(house.r, house.c, self.game_map)
-                new_peep.life = 50
-                house.spawn_peep()
                 new_peeps.append(new_peep)
         self.peeps.extend(new_peeps)
 
     def draw(self):
         self.screen.fill((0, 0, 0))
-        # Dessin de la carte
+        # Dessin de la carte avec les tuiles
         for r in range(self.game_map.grid_height):
             for c in range(self.game_map.grid_width):
                 self.game_map.draw_tile(self.screen, r, c, self.camera.offset_x, self.camera.offset_y)
+        
+        # Dessin des maisons par-dessus les tuiles
+        self.draw_houses()
+        
         # Dessin des peeps
         for peep in self.peeps:
             peep.draw(self.screen, self.camera.offset_x, self.camera.offset_y)
+        
         # Affichage du coin le plus proche de la souris
         mouse_x, mouse_y = pygame.mouse.get_pos()
         grid_r, grid_c = self.game_map.screen_to_nearest_corner(
@@ -86,8 +91,55 @@ class Game:
             alt = self.game_map.get_corner_altitude(grid_r, grid_c)
             px, py = self.game_map.world_to_screen(grid_r, grid_c, alt, self.camera.offset_x, self.camera.offset_y)
             pygame.draw.circle(self.screen, (255, 0, 0), (int(px), int(py)), 3)
+        
         self.draw_debug_info()
         pygame.display.flip()
+
+    def draw_houses(self):
+        """Dessine toutes les maisons avec leurs barres de vie"""
+        for house in self.game_map.houses:
+            # Position de la maison à l'écran
+            center_x, center_y = self.game_map.world_to_screen(
+                house.r, house.c, 
+                self.game_map.get_corner_altitude(house.r, house.c), 
+                self.camera.offset_x, self.camera.offset_y
+            )
+            
+            # Dessiner la maison (petit rectangle marron avec toit rouge)
+            house_width = 20
+            house_height = 20
+            
+            # Corps de la maison
+            pygame.draw.rect(
+                self.screen,
+                BROWN,  # marron
+                (center_x - house_width // 2, center_y - house_height // 2, house_width, house_height)
+            )
+            
+            # Toit rouge
+            pygame.draw.polygon(
+                self.screen,
+                RED,
+                [
+                    (center_x - house_width // 2, center_y - house_height // 2),
+                    (center_x + house_width // 2, center_y - house_height // 2),
+                    (center_x, center_y - house_height - 10)
+                ]
+            )
+            
+            # Barre de vie de la maison
+            bar_width = 30
+            bar_height = 4
+            bar_x = center_x - bar_width // 2
+            bar_y = center_y - house_height - 20
+            
+            # Fond de la barre (noir)
+            pygame.draw.rect(self.screen, BLACK, (bar_x, bar_y, bar_width, bar_height))
+            
+            # Barre de vie (verte)
+            life_ratio = house.life / house.max_life
+            life_width = int(bar_width * life_ratio)
+            pygame.draw.rect(self.screen, GREEN, (bar_x, bar_y, life_width, bar_height))
 
     def draw_debug_info(self):
         mouse_x, mouse_y = pygame.mouse.get_pos()
@@ -102,10 +154,11 @@ class Game:
             f"Mouse: ({mouse_x}, {mouse_y})",
             f"Corner Clicked: ({grid_r}, {grid_c}) Alt: {alt_text}",
             f"Camera Offset: ({int(self.camera.offset_x)}, {int(self.camera.offset_y)})",
-            f"Peeps: {len(self.peeps)}"
+            f"Peeps: {len(self.peeps)}",
+            f"Houses: {len(self.game_map.houses)}"
         ]
         for i, text in enumerate(debug_texts):
-            surf = self.font.render(text, True, (255, 255, 255))
+            surf = self.font.render(text, True, WHITE)
             self.screen.blit(surf, (10, 10 + 18 * i))
 
 if __name__ == '__main__':
