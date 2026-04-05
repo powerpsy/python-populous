@@ -2,21 +2,48 @@ import pygame
 import random
 from settings import *
 
-def darken_color(color, factor):
-    return tuple(
-        max(0, min(255, int(round(c * factor))))
-        for c in color
-    )
+
+def load_tile_surfaces():
+    """Charge le tileset et découpe chaque tile en surface pygame."""
+    sheet = pygame.image.load(TILES_PATH).convert_alpha()
+
+    x_starts = [0] + [e + 1 for _, e in TILES_V_LINES]
+    x_ends = [s for s, _ in TILES_V_LINES] + [sheet.get_width()]
+    y_starts = [0] + [e + 1 for _, e in TILES_H_LINES]
+    y_ends = [s for s, _ in TILES_H_LINES] + [sheet.get_height()]
+
+    ref_w = x_ends[0] - x_starts[0]
+    ref_h = y_ends[0] - y_starts[0]
+
+    tiles = {}
+    for row in range(len(y_starts)):
+        for col in range(len(x_starts)):
+            x0, x1 = x_starts[col], x_ends[col]
+            y0, y1 = y_starts[row], y_ends[row]
+            tw, th = x1 - x0, y1 - y0
+            if tw < 5 or th < 5:
+                continue
+            sub = sheet.subsurface(pygame.Rect(x0, y0, tw, th)).copy()
+            if tw < ref_w or th < ref_h:
+                padded = pygame.Surface((ref_w, ref_h), pygame.SRCALPHA)
+                padded.blit(sub, (0, 0))
+                sub = padded
+            tiles[(row, col)] = sub
+    return tiles
+
 
 class GameMap:
     def __init__(self, grid_width, grid_height):
         self.grid_width = grid_width
         self.grid_height = grid_height
         self.corners = [
-            [LAND_LEVEL_MIN for _ in range(grid_width + 1)]
+            [0 for _ in range(grid_width + 1)]
             for _ in range(grid_height + 1)
         ]
         self.houses = []
+        self.tile_surfaces = load_tile_surfaces()
+        self.water_timer = 0.0
+        self.water_frame = 0
 
     def get_corner_altitude(self, r, c):
         if 0 <= r <= self.grid_height and 0 <= c <= self.grid_width:
@@ -31,36 +58,23 @@ class GameMap:
                 return True
         return False
 
-    def world_to_screen(self, r, c, altitude, camera_offset_x=0, camera_offset_y=0):
-        screen_x = MAP_OFFSET_X + (c - r) * TILE_ISO_WIDTH_HALF + camera_offset_x
-        screen_y = MAP_OFFSET_Y + (c + r) * TILE_ISO_HEIGHT_HALF - altitude * ALTITUDE_PIXEL_STEP + camera_offset_y
-        return int(screen_x), int(screen_y)
+    def world_to_screen(self, r, c, altitude, cam_x=0, cam_y=0):
+        sx = MAP_OFFSET_X + (c - r) * TILE_HALF_W + cam_x
+        sy = MAP_OFFSET_Y + (c + r) * TILE_HALF_H - altitude * ALTITUDE_PIXEL_STEP + cam_y
+        return int(sx), int(sy)
 
-    def screen_to_nearest_corner(self, screen_x, screen_y, camera_offset_x=0, camera_offset_y=0):
-        min_dist_sq = float('inf')
-        best_r, best_c = -1, -1
+    def screen_to_nearest_corner(self, sx, sy, cam_x=0, cam_y=0):
+        best_r, best_c = 0, 0
+        min_dist = float("inf")
         for r in range(self.grid_height + 1):
             for c in range(self.grid_width + 1):
                 alt = self.get_corner_altitude(r, c)
-                sx, sy = self.world_to_screen(r, c, alt, camera_offset_x, camera_offset_y)
-                dist_sq = (screen_x - sx) ** 2 + (screen_y - sy) ** 2
-                if dist_sq < min_dist_sq:
-                    min_dist_sq = dist_sq
+                px, py = self.world_to_screen(r, c, alt, cam_x, cam_y)
+                d = (sx - px) ** 2 + (sy - py) ** 2
+                if d < min_dist:
+                    min_dist = d
                     best_r, best_c = r, c
         return best_r, best_c
-
-    def can_set_corner_altitude(self, r, c, new_alt):
-        """Vérifie que tous les voisins immédiats resteront à une différence de hauteur <= 1."""
-        for dr in [-1, 0, 1]:
-            for dc in [-1, 0, 1]:
-                if dr == 0 and dc == 0:
-                    continue
-                nr, nc = r + dr, c + dc
-                if 0 <= nr <= self.grid_height and 0 <= nc <= self.grid_width:
-                    neighbor_alt = self.get_corner_altitude(nr, nc)
-                    if abs(new_alt - neighbor_alt) > 1:
-                        return False
-        return True
 
     def propagate_raise(self, r, c, visited=None):
         if visited is None:
@@ -70,8 +84,7 @@ class GameMap:
         visited.add((r, c))
         current = self.get_corner_altitude(r, c)
         new_alt = current + 1
-        changed = self.set_corner_altitude(r, c, new_alt)
-        if not changed:
+        if not self.set_corner_altitude(r, c, new_alt):
             return
         for dr in [-1, 0, 1]:
             for dc in [-1, 0, 1]:
@@ -79,8 +92,7 @@ class GameMap:
                     continue
                 nr, nc = r + dr, c + dc
                 if 0 <= nr <= self.grid_height and 0 <= nc <= self.grid_width:
-                    neighbor_alt = self.get_corner_altitude(nr, nc)
-                    if new_alt - neighbor_alt > 1:
+                    if new_alt - self.get_corner_altitude(nr, nc) > 1:
                         self.propagate_raise(nr, nc, visited)
 
     def propagate_lower(self, r, c, visited=None):
@@ -91,8 +103,7 @@ class GameMap:
         visited.add((r, c))
         current = self.get_corner_altitude(r, c)
         new_alt = current - 1
-        changed = self.set_corner_altitude(r, c, new_alt)
-        if not changed:
+        if not self.set_corner_altitude(r, c, new_alt):
             return
         for dr in [-1, 0, 1]:
             for dc in [-1, 0, 1]:
@@ -100,8 +111,7 @@ class GameMap:
                     continue
                 nr, nc = r + dr, c + dc
                 if 0 <= nr <= self.grid_height and 0 <= nc <= self.grid_width:
-                    neighbor_alt = self.get_corner_altitude(nr, nc)
-                    if neighbor_alt - new_alt > 1:
+                    if self.get_corner_altitude(nr, nc) - new_alt > 1:
                         self.propagate_lower(nr, nc, visited)
 
     def raise_corner(self, r, c):
@@ -110,172 +120,98 @@ class GameMap:
     def lower_corner(self, r, c):
         self.propagate_lower(r, c)
 
-    def lerp_color(self, c1, c2, t):
-        return (
-            int(c1[0] + (c2[0] - c1[0]) * t),
-            int(c1[1] + (c2[1] - c1[1]) * t),
-            int(c1[2] + (c2[2] - c1[2]) * t),
+    def update(self, dt):
+        """Met à jour les animations (eau)."""
+        self.water_timer += dt
+        if self.water_timer >= 0.5:
+            self.water_timer -= 0.5
+            self.water_frame = 1 - self.water_frame
+
+    def get_tile_key(self, r, c):
+        a0 = self.get_corner_altitude(r, c)
+        a1 = self.get_corner_altitude(r, c + 1)
+        a2 = self.get_corner_altitude(r + 1, c + 1)
+        a3 = self.get_corner_altitude(r + 1, c)
+        min_alt = min(a0, a1, a2, a3)
+
+        if a0 == a1 == a2 == a3 == 0:
+            return TILE_WATER if self.water_frame == 0 else TILE_WATER_2
+
+        d = (
+            min(1, a0 - min_alt),
+            min(1, a1 - min_alt),
+            min(1, a2 - min_alt),
+            min(1, a3 - min_alt),
         )
 
-    def average_color(self, color1, color2):
-        return tuple((c1 + c2) // 2 for c1, c2 in zip(color1, color2))
+        if min_alt == 0:
+            tile_map = SLOPE_TILES_LOW
+        else:
+            tile_map = SLOPE_TILES
 
-    def draw_tile(self, surface, r, c, camera_offset_x=0, camera_offset_y=0):
-        alt = [
-            self.get_corner_altitude(r, c),         # A
-            self.get_corner_altitude(r, c + 1),     # B
-            self.get_corner_altitude(r + 1, c + 1), # C
-            self.get_corner_altitude(r + 1, c)      # D
-        ]
-        pts = [
-            self.world_to_screen(r, c, alt[0], camera_offset_x, camera_offset_y),         # A
-            self.world_to_screen(r, c + 1, alt[1], camera_offset_x, camera_offset_y),     # B
-            self.world_to_screen(r + 1, c + 1, alt[2], camera_offset_x, camera_offset_y), # C
-            self.world_to_screen(r + 1, c, alt[3], camera_offset_x, camera_offset_y)      # D
-        ]
-        colors = [TERRAIN_COLORS.get(a, DEFAULT_TERRAIN_COLOR_INFO)[1] for a in alt]
+        return tile_map.get(d, TILE_FLAT)
 
-        # Cas 1 : tous identiques
-        if alt[0] == alt[1] == alt[2] == alt[3]:
-            # Vérifie si une maison est présente sur cette tuile
-            has_house = any(house.r == r and house.c == c for house in self.houses)
-            color = (255, 0, 0) if has_house else colors[0]
-            pygame.draw.polygon(surface, color, pts)
-            pygame.draw.polygon(surface, (0, 0, 0), pts, 1)
+    def draw_tile(self, surface, r, c, cam_x=0, cam_y=0):
+        a0 = self.get_corner_altitude(r, c)
+        a1 = self.get_corner_altitude(r, c + 1)
+        a2 = self.get_corner_altitude(r + 1, c + 1)
+        a3 = self.get_corner_altitude(r + 1, c)
+        min_alt = min(a0, a1, a2, a3)
+
+        tile_key = self.get_tile_key(r, c)
+        tile_surf = self.tile_surfaces.get(tile_key)
+        if tile_surf is None:
             return
 
-        # Cas 2 : un coin différent
-        found = False
-        for i in range(4):
-            others = [alt[(i+1)%4], alt[(i+2)%4], alt[(i+3)%4]]
-            if others[0] == others[1] == others[2] and alt[i] != others[0]:
-                diff_idx = i
-                maj = others[0]
-                found = True
-                break
+        # Le point world_to_screen(r, c, alt) donne le coin NW (sommet haut du losange)
+        # Le tile doit être positionné pour que le sommet haut du losange soit centré horizontalement
+        sx, sy = self.world_to_screen(r, c, min_alt, cam_x, cam_y)
+        blit_x = sx - TILE_HALF_W
+        blit_y = sy
+        surface.blit(tile_surf, (blit_x, blit_y))
 
-        if found:
-            tri1 = [diff_idx, (diff_idx+1)%4, (diff_idx-1)%4]
-            tri2 = [(diff_idx+1)%4, (diff_idx+2)%4, (diff_idx-1)%4]
-
-            # Triangle 1
-            t1_alts = [alt[j] for j in tri1]
-            t1_colors = [colors[j] for j in tri1]
-            if t1_alts[0] == t1_alts[1] == t1_alts[2]:
-                color_tri1 = t1_colors[0]
-            else:
-                min_alt = min(t1_alts)
-                max_alt = max(t1_alts)
-                color_tri1 = self.average_color(
-                    TERRAIN_COLORS.get(min_alt, DEFAULT_TERRAIN_COLOR_INFO)[1],
-                    TERRAIN_COLORS.get(max_alt, DEFAULT_TERRAIN_COLOR_INFO)[1]
-                )
-            pygame.draw.polygon(surface, color_tri1, [pts[j] for j in tri1])
-
-            # Triangle 2
-            t2_alts = [alt[j] for j in tri2]
-            t2_colors = [colors[j] for j in tri2]
-            if t2_alts[0] == t2_alts[1] == t2_alts[2]:
-                color_tri2 = t2_colors[0]
-            else:
-                min_alt = min(t2_alts)
-                max_alt = max(t2_alts)
-                color_tri2 = self.average_color(
-                    TERRAIN_COLORS.get(min_alt, DEFAULT_TERRAIN_COLOR_INFO)[1],
-                    TERRAIN_COLORS.get(max_alt, DEFAULT_TERRAIN_COLOR_INFO)[1]
-                )
-            pygame.draw.polygon(surface, color_tri2, [pts[j] for j in tri2])
-
-        # Cas 3 : deux paires (ex: 1122, 2211, 3443, 2332, etc.)
-        else:
-            levels = list(set(alt))
-            interm = self.average_color(
-                TERRAIN_COLORS.get(levels[0], DEFAULT_TERRAIN_COLOR_INFO)[1],
-                TERRAIN_COLORS.get(levels[1], DEFAULT_TERRAIN_COLOR_INFO)[1]
-            )
-            pygame.draw.polygon(surface, interm, pts)
-
-        # Optionnel : contour
-        pygame.draw.polygon(surface, (0, 0, 0), pts, 1)
-
-        # Dessin de la maison si présente
-        for house in self.houses:
-            if house.r == r and house.c == c:
-                alt = self.get_corner_altitude(r, c)
-                px, py = self.world_to_screen(r + 0.5, c + 0.5, alt, camera_offset_x, camera_offset_y)
-                pygame.draw.rect(surface, (150, 75, 0), (px-6, py-12, 12, 12))  # base
-                pygame.draw.polygon(surface, (200, 0, 0), [(px-6, py-12), (px+6, py-12), (px, py-20)])  # toit
-                # Barre de vie de la maison
-                bar_width = 16
-                bar_height = 3
-                life_ratio = min(1.0, house.life / 100)
-                pygame.draw.rect(surface, (255, 0, 0), (px - bar_width//2, py - 18, bar_width, bar_height))
-                pygame.draw.rect(surface, (0, 255, 0), (px - bar_width//2, py - 18, int(bar_width * life_ratio), bar_height))
-
-    def draw(self, surface, camera_offset_x=0, camera_offset_y=0):
+    def draw(self, surface, cam_x=0, cam_y=0):
         for r in range(self.grid_height):
             for c in range(self.grid_width):
-                self.draw_tile(surface, r, c, camera_offset_x, camera_offset_y)
+                self.draw_tile(surface, r, c, cam_x, cam_y)
+
+    def draw_houses(self, surface, cam_x=0, cam_y=0):
+        for house in self.houses:
+            alt = self.get_corner_altitude(house.r, house.c)
+            tile_key = BUILDING_TILES.get(house.building_type, BUILDING_TILES["hut"])
+            tile_surf = self.tile_surfaces.get(tile_key)
+            if tile_surf is None:
+                continue
+            sx, sy = self.world_to_screen(house.r, house.c, alt, cam_x, cam_y)
+            blit_x = sx - TILE_HALF_W
+            blit_y = sy - TILE_HALF_H
+            surface.blit(tile_surf, (blit_x, blit_y))
 
     def randomize(self, min_level=0, max_level=7):
-        # On commence par la première ligne
         self.corners[0][0] = random.randint(min_level, max_level)
         for c in range(1, self.grid_width + 1):
-            prev = self.corners[0][c-1]
+            prev = self.corners[0][c - 1]
             self.corners[0][c] = max(min_level, min(max_level, prev + random.choice([-1, 0, 1])))
-        # Puis chaque ligne suivante
         for r in range(1, self.grid_height + 1):
-            # Premier coin de la ligne : voisin du dessus
-            prev = self.corners[r-1][0]
+            prev = self.corners[r - 1][0]
             self.corners[r][0] = max(min_level, min(max_level, prev + random.choice([-1, 0, 1])))
             for c in range(1, self.grid_width + 1):
-                # On prend la moyenne des voisins gauche et haut, puis on ajoute -1, 0 ou +1
-                left = self.corners[r][c-1]
-                up = self.corners[r-1][c]
+                left = self.corners[r][c - 1]
+                up = self.corners[r - 1][c]
                 base = (left + up) // 2
                 self.corners[r][c] = max(min_level, min(max_level, base + random.choice([-1, 0, 1])))
 
     def is_flat_and_buildable(self, r, c):
-        # Vérifie que la case est plate et non niveau 0
+        if r < 0 or c < 0 or r >= self.grid_height or c >= self.grid_width:
+            return False
         a = self.get_corner_altitude(r, c)
-        b = self.get_corner_altitude(r, c+1)
-        c_ = self.get_corner_altitude(r+1, c+1)
-        d = self.get_corner_altitude(r+1, c)
-        if a == b == c_ == d and a != 0:
-            # Vérifie l'absence d'obstacle
-            return not self.has_obstacle(r, c)
+        b = self.get_corner_altitude(r, c + 1)
+        c_ = self.get_corner_altitude(r + 1, c + 1)
+        d = self.get_corner_altitude(r + 1, c)
+        if a == b == c_ == d and a > 0:
+            return not any(h.r == r and h.c == c for h in self.houses)
         return False
 
-    def has_obstacle(self, r, c):
-        # À compléter plus tard (arbre, sort, dépendance...)
-        # Pour l’instant, on vérifie juste la présence d’un bâtiment
-        return hasattr(self, "buildings") and (r, c) in self.buildings
-
-    def add_house(self, r, c, life):
-        house = House(r, c, life)
-        house.game_map = self  # pour spawn_peep
+    def add_house(self, house):
         self.houses.append(house)
-
-class House:
-    # Dummy Peep class definition to avoid NameError
-    class Peep:
-        def __init__(self, r, c, game_map):
-            self.r = r
-            self.c = c
-            self.game_map = game_map
-    
-    def __init__(self, r, c, life):
-        self.r = r
-        self.c = c
-        self.life = life
-
-    def update(self, dt):
-        self.life += dt
-
-    def can_spawn_peep(self):
-        return self.life > 100
-
-        def spawn_peep(self):
-            self.life -= 50
-            return Peep(self.r, self.c, self.game_map)
 
