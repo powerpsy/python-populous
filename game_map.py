@@ -167,7 +167,12 @@ class GameMap:
         # Le tile doit être positionné pour que le sommet haut du losange soit centré horizontalement
         sx, sy = self.world_to_screen(r, c, min_alt, cam_x, cam_y)
         blit_x = sx - TILE_HALF_W
-        blit_y = sy
+        if tile_key in (TILE_WATER, TILE_WATER_2):
+            blit_y = sy
+        elif tile_key == TILE_FLAT:
+            blit_y = sy - max(0, min_alt - 1) * 15
+        else:
+            blit_y = sy - min_alt * 15
         surface.blit(tile_surf, (blit_x, blit_y))
 
     def draw(self, surface, cam_x=0, cam_y=0):
@@ -187,6 +192,25 @@ class GameMap:
             blit_y = sy - TILE_HALF_H
             surface.blit(tile_surf, (blit_x, blit_y))
 
+    def _enforce_height_constraints(self):
+        """Passe de lissage : garantit que tous les voisins à 8 directions diffèrent de max 1."""
+        changed = True
+        while changed:
+            changed = False
+            for r in range(self.grid_height + 1):
+                for c in range(self.grid_width + 1):
+                    for dr, dc in [(0,1),(0,-1),(1,0),(-1,0),(1,1),(1,-1),(-1,1),(-1,-1)]:
+                        nr, nc = r + dr, c + dc
+                        if 0 <= nr <= self.grid_height and 0 <= nc <= self.grid_width:
+                            if self.corners[r][c] - self.corners[nr][nc] > 1:
+                                self.corners[r][c] = self.corners[nr][nc] + 1
+                                changed = True
+
+    def set_all_altitude(self, value):
+        for r in range(self.grid_height + 1):
+            for c in range(self.grid_width + 1):
+                self.corners[r][c] = value
+
     def randomize(self, min_level=0, max_level=7):
         self.corners[0][0] = random.randint(min_level, max_level)
         for c in range(1, self.grid_width + 1):
@@ -198,8 +222,11 @@ class GameMap:
             for c in range(1, self.grid_width + 1):
                 left = self.corners[r][c - 1]
                 up = self.corners[r - 1][c]
-                base = (left + up) // 2
-                self.corners[r][c] = max(min_level, min(max_level, base + random.choice([-1, 0, 1])))
+                lo = max(min_level, left - 1, up - 1)
+                hi = min(max_level, left + 1, up + 1)
+                base = max(lo, min(hi, (left + up) // 2 + random.choice([-1, 0, 1])))
+                self.corners[r][c] = base
+        self._enforce_height_constraints()
 
     def is_flat_and_buildable(self, r, c):
         if r < 0 or c < 0 or r >= self.grid_height or c >= self.grid_width:

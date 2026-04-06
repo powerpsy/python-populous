@@ -52,6 +52,8 @@ class Game:
                     self.game_map.houses.clear()
                     self.game_map.randomize()
                     self.spawn_initial_peeps(10)
+                elif event.key == pygame.K_F4:
+                    self.game_map.set_all_altitude(1)
             elif event.type == pygame.MOUSEBUTTONDOWN:
                 mx, my = pygame.mouse.get_pos()
                 r, c = self.game_map.screen_to_nearest_corner(
@@ -103,7 +105,7 @@ class Game:
         if 0 <= grid_r <= self.game_map.grid_height and 0 <= grid_c <= self.game_map.grid_width:
             alt = self.game_map.get_corner_altitude(grid_r, grid_c)
             px, py = self.game_map.world_to_screen(grid_r, grid_c, alt, cam_x, cam_y)
-            pygame.draw.circle(self.screen, RED, (px, py + TILE_HALF_H - alt * 13), 3)
+            pygame.draw.circle(self.screen, RED, (px, py + TILE_HALF_H - alt * 14), 3)
 
         self.draw_debug_info()
         pygame.display.flip()
