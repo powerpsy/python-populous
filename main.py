@@ -103,7 +103,7 @@ class Game:
         if 0 <= grid_r <= self.game_map.grid_height and 0 <= grid_c <= self.game_map.grid_width:
             alt = self.game_map.get_corner_altitude(grid_r, grid_c)
             px, py = self.game_map.world_to_screen(grid_r, grid_c, alt, cam_x, cam_y)
-            pygame.draw.circle(self.screen, RED, (px, py), 3)
+            pygame.draw.circle(self.screen, RED, (px, py + TILE_HALF_H - alt * 13), 3)
 
         self.draw_debug_info()
         pygame.display.flip()
