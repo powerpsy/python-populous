@@ -111,10 +111,16 @@ def load_sprite_surfaces():
 # Simplified: we use row 0 columns for walk animation in a direction
 
 WALK_FRAMES = {
-    'SE': [(0, 0), (0, 1)],
-    'SW': [(0, 2), (0, 3)],
-    'NW': [(0, 4), (0, 5)],
-    'NE': [(0, 6), (0, 7)],
+    'N':      [(0,  0), (0,  1)],
+    'NE':     [(0,  2), (0,  3)],
+    'E':      [(0,  4), (0,  5)],
+    'SE':     [(0,  6), (0,  7)],
+    'S':      [(0,  8), (0,  9)],
+    'SW':     [(0, 10), (0, 11)],
+    'W':      [(0, 12), (0, 13)],
+    'NW':     [(0, 14), (0, 15)],
+    'IDLE':   [(0,  8), (0,  9)],
+    'DROWN':  [(5,  8), (5,  9), (5, 10), (5, 11)],
 }
 
 
@@ -140,7 +146,10 @@ class Peep:
         self.build_timer = 0.0
         self.anim_timer = 0.0
         self.anim_frame = 0
-        self.facing = 'SE'
+        self.facing = 'IDLE'
+        self.is_moving = False
+        self.energy_yellow = 0   # barres jaunes restantes
+        self.energy_orange = 1.0  # fraction de la barre orange courante (0→1)
 
     def update(self, dt):
         if self.dead:
@@ -171,6 +180,7 @@ class Peep:
         new_y = max(0.1, min(self.game_map.grid_height - 0.1, new_y))
 
         # Vérifier que la destination n'est pas de l'eau
+        old_x, old_y = self.x, self.y
         gr, gc = int(new_y), int(new_x)
         if 0 <= gr < self.game_map.grid_height and 0 <= gc < self.game_map.grid_width:
             alt = self.game_map.get_corner_altitude(gr, gc)
@@ -178,17 +188,45 @@ class Peep:
                 self.x = new_x
                 self.y = new_y
 
-        # Mettre à jour la direction visuelle
-        if abs(dx) > abs(dy):
-            if dx > 0:
-                self.facing = 'SE' if dy > 0 else 'NE'
-            else:
-                self.facing = 'SW' if dy > 0 else 'NW'
+        self.is_moving = (self.x != old_x or self.y != old_y)
+
+        # Détecter si le peep est sur une tile eau (les 4 coins de la tile à 0)
+        gr_cur, gc_cur = int(self.y), int(self.x)
+        if (0 <= gr_cur < self.game_map.grid_height and 0 <= gc_cur < self.game_map.grid_width):
+            a0 = self.game_map.get_corner_altitude(gr_cur,     gc_cur)
+            a1 = self.game_map.get_corner_altitude(gr_cur,     gc_cur + 1)
+            a2 = self.game_map.get_corner_altitude(gr_cur + 1, gc_cur + 1)
+            a3 = self.game_map.get_corner_altitude(gr_cur + 1, gc_cur)
+            on_water = (a0 == 0 and a1 == 0 and a2 == 0 and a3 == 0)
         else:
-            if dy > 0:
-                self.facing = 'SE' if dx > 0 else 'SW'
-            else:
-                self.facing = 'NE' if dx > 0 else 'NW'
+            on_water = False
+
+        # Mettre à jour la direction visuelle (8 directions)
+        if on_water:
+            self.facing = 'DROWN'
+        elif self.is_moving:
+            # Projeter le déplacement grille vers l'espace écran isométrique
+            # world_to_screen: sx = (c-r)*TILE_HALF_W, sy = (c+r)*TILE_HALF_H
+            # dx = déplacement en c, dy = déplacement en r
+            screen_dx = (dx - dy) * TILE_HALF_W
+            screen_dy = (dx + dy) * TILE_HALF_H
+            angle = math.degrees(math.atan2(screen_dy, screen_dx)) % 360
+            dirs = ['E', 'SE', 'S', 'SW', 'W', 'NW', 'N', 'NE']
+            self.facing = dirs[int((angle + 22.5) / 45) % 8]
+        else:
+            self.facing = 'IDLE'
+
+        # Énergie : la barre orange se vide en 1 minute (5x plus vite sur l'eau)
+        drain_rate = 5.0 if on_water else 1.0
+        self.energy_orange -= dt * drain_rate / 60.0
+        if self.energy_orange <= 0:
+            self.energy_yellow -= 1
+            self.energy_orange = 1.0
+            if self.energy_yellow < 0:
+                self.energy_yellow = 0
+                self.energy_orange = 0
+                self.dead = True
+                return
 
         # Construction
         self.build_timer += dt
@@ -205,23 +243,35 @@ class Peep:
 
     def draw(self, surface, cam_x=0, cam_y=0):
         gr, gc = int(self.y), int(self.x)
-        if 0 <= gr < self.game_map.grid_height and 0 <= gc < self.game_map.grid_width:
-            alt = self.game_map.get_corner_altitude(gr, gc)
+        fx = self.x - gc  # fraction horizontale dans la tile
+        fy = self.y - gr  # fraction verticale dans la tile
+
+        # Interpolation bilinéaire de l'altitude selon la position dans la tile
+        if (0 <= gr < self.game_map.grid_height and 0 <= gc < self.game_map.grid_width):
+            a_nw = self.game_map.get_corner_altitude(gr,     gc)
+            a_ne = self.game_map.get_corner_altitude(gr,     gc + 1)
+            a_sw = self.game_map.get_corner_altitude(gr + 1, gc)
+            a_se = self.game_map.get_corner_altitude(gr + 1, gc + 1)
+            alt = (1 - fx) * (1 - fy) * a_nw + fx * (1 - fy) * a_ne \
+                + (1 - fx) * fy       * a_sw + fx * fy       * a_se
         else:
             alt = 0
 
         sx, sy = self.game_map.world_to_screen(self.y, self.x, alt, cam_x, cam_y)
+        # Sol visuel : même formule que le curseur rouge
+        ground_y = sy + TILE_HALF_H - int(alt * 13)
 
         sprites = self.get_sprites()
-        frames = WALK_FRAMES.get(self.facing, WALK_FRAMES['SE'])
-        frame_key = frames[self.anim_frame % len(frames)]
+        frames = WALK_FRAMES.get(self.facing, WALK_FRAMES['IDLE'])
+        anim_len = len(WALK_FRAMES.get(self.facing, WALK_FRAMES['IDLE']))
+        frame_key = frames[self.anim_frame % anim_len]
         sprite = sprites.get(frame_key)
 
         if sprite is not None:
             # Centrer le sprite sur la position
             sw, sh = sprite.get_size()
             blit_x = sx - sw // 2
-            blit_y = sy - sh
+            blit_y = ground_y - sh
             if self.dead:
                 # Teinter en rouge pour les morts
                 tinted = sprite.copy()
@@ -229,9 +279,23 @@ class Peep:
                 surface.blit(tinted, (blit_x, blit_y))
             else:
                 surface.blit(sprite, (blit_x, blit_y))
+
+            # Barres d'énergie au-dessus du sprite (uniquement si vivant)
+            if not self.dead:
+                bar_w = sw
+                bar_x = blit_x
+                bar_y = blit_y - 6  # 2px jaune + 1px gap + 2px orange
+                # Fond sombre + barre jaune
+                yellow_w = int(bar_w * self.energy_yellow / 5)
+                pygame.draw.rect(surface, (80, 80, 0), (bar_x, bar_y, bar_w, 2))
+                pygame.draw.rect(surface, (255, 220, 0), (bar_x, bar_y, yellow_w, 2))
+                # Fond sombre + barre orange
+                orange_w = int(bar_w * self.energy_orange)
+                pygame.draw.rect(surface, (80, 40, 0), (bar_x, bar_y + 3, bar_w, 2))
+                pygame.draw.rect(surface, (255, 140, 0), (bar_x, bar_y + 3, orange_w, 2))
         else:
             # Fallback : petit cercle
-            pygame.draw.circle(surface, (255, 220, 120), (sx, sy), 3)
+            pygame.draw.circle(surface, (255, 220, 120), (sx, ground_y), 3)
 
     def is_removable(self):
         return self.dead and self.death_timer > 3.0
