@@ -11,12 +11,12 @@
 11. cases de pouvoir
 12. faire une minimap
 
-14. ajouter le sprite étoile pour le controle du terrain
-15. ajouter une fenetre de jeu et la possibilité de scroller jusqu'aux bords du terrain
 16. gérer les bâtiments 2: évaluer si l'espace est suffisant pour un bâtiment
 
 terminé -----------------------------------------------------------
 
+15. ajouter une fenetre de jeu et la possibilité de scroller jusqu'aux bords du terrain
+14. ajouter le sprite étoile pour le controle du terrain
 05. gérer les peeps 1: mettre 2 barres d'énergie au dessus (une jaune, une orange), 1 pixel jaune = une barre orange pleine
 06. gérer les peeps 2: animations peeps à corriger dans chaque direction
 01. effet de bord à corriger: mettre de la terre sur les bords du terrain: éviter le noir (on peut empiler les FLAT surfaces pour combler les espaces noirs)
