@@ -44,6 +44,7 @@ class GameMap:
         self.tile_surfaces = load_tile_surfaces()
         self.water_timer = 0.0
         self.water_frame = 0
+        self.flag_frame = 0
 
     def get_corner_altitude(self, r, c):
         if 0 <= r <= self.grid_height and 0 <= c <= self.grid_width:
@@ -126,6 +127,7 @@ class GameMap:
         if self.water_timer >= 0.5:
             self.water_timer -= 0.5
             self.water_frame = 1 - self.water_frame
+            self.flag_frame = 1 - self.flag_frame
 
     def get_tile_key(self, r, c):
         a0 = self.get_corner_altitude(r, c)
@@ -173,6 +175,19 @@ class GameMap:
             blit_y = sy - max(0, min_alt - 1) * 15
         else:
             blit_y = sy - min_alt * 15
+
+        # Remplir les faces latérales visibles avec des copies empilées de TILE_FLAT
+        # gap = distance en pixels entre blit_y et le niveau de sol de référence (alt=0)
+        # sy_0 = sy + min_alt  (car ALTITUDE_PIXEL_STEP = 1)
+        sy0 = sy + min_alt
+        gap = sy0 - blit_y
+        n_copies = gap // TILE_HALF_H
+        if n_copies > 0:
+            flat_surf = self.tile_surfaces.get(TILE_FLAT)
+            if flat_surf is not None:
+                for k in range(n_copies, 0, -1):  # du bas vers le haut
+                    surface.blit(flat_surf, (blit_x, blit_y + k * TILE_HALF_H))
+
         surface.blit(tile_surf, (blit_x, blit_y))
 
     def draw(self, surface, cam_x=0, cam_y=0):
@@ -181,7 +196,11 @@ class GameMap:
                 self.draw_tile(surface, r, c, cam_x, cam_y)
 
     def draw_houses(self, surface, cam_x=0, cam_y=0):
-        for house in self.houses:
+        from peep import Peep
+        peep_sprites = Peep.get_sprites()
+        flag_surf = peep_sprites.get((4, self.flag_frame))
+
+        for house in sorted(self.houses, key=lambda h: h.r + h.c):
             alt = self.get_corner_altitude(house.r, house.c)
             tile_key = BUILDING_TILES.get(house.building_type, BUILDING_TILES["hut"])
             tile_surf = self.tile_surfaces.get(tile_key)
@@ -189,8 +208,16 @@ class GameMap:
                 continue
             sx, sy = self.world_to_screen(house.r, house.c, alt, cam_x, cam_y)
             blit_x = sx - TILE_HALF_W
-            blit_y = sy - TILE_HALF_H
+            # Même offset d'altitude que draw_tile pour TILE_FLAT
+            blit_y = sy - max(0, alt - 1) * 15 - TILE_HALF_H
             surface.blit(tile_surf, (blit_x, blit_y))
+
+            # Drapeau d'équipe animé (sprites 4,0 et 4,1)
+            # Côté droit en iso = coin E du tile = blit_x + TILE_HALF_W
+            if flag_surf is not None:
+                flag_x = blit_x + TILE_HALF_W
+                flag_y = blit_y
+                surface.blit(flag_surf, (flag_x, flag_y))
 
     def _enforce_height_constraints(self):
         """Passe de lissage : garantit que tous les voisins à 8 directions diffèrent de max 1."""
