@@ -10,8 +10,12 @@
 10. case mettre un magnet
 11. cases de pouvoir
 12. faire une minimap
-
 16. gérer les bâtiments 2: évaluer si l'espace est suffisant pour un bâtiment
+
+17. utiliser les sprites AmigaSprite
+18. utiliser l'UI AmigaUI
+19. refaire le mécanisme d'affichage de la map au dessus du background
+20. 
 
 terminé -----------------------------------------------------------
 

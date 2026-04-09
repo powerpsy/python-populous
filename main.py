@@ -1,5 +1,6 @@
 import pygame
 import random
+import os
 from settings import *
 from game_map import GameMap
 from peep import Peep
@@ -16,21 +17,24 @@ class Game:
         self.font = pygame.font.SysFont("consolas", 16)
         
         # Charger l'interface
-        ui_raw = pygame.image.load("UI.png").convert_alpha()
+        ui_path = os.path.join(GFX_DIR, "UI.png")
+        ui_raw = pygame.image.load(ui_path).convert_alpha()
         self.ui_scale = 3
         self.ui_image = pygame.transform.scale(ui_raw, (ui_raw.get_width() * self.ui_scale, ui_raw.get_height() * self.ui_scale))
         
-        # Dimensions de la zone de render (x=108, y=74, right=317, bottom=215 dans l'original)
+        # Dimensions de la zone de render (x=64, y=74, right=319, bottom=215 dans l'original)
+        # Rectifiée pour inclure tout le losange transparent (qui débute à x=64 et non 108)
         self.view_rect = pygame.Rect(
-            108 * self.ui_scale, 
+            64 * self.ui_scale, 
             74 * self.ui_scale, 
-            (317 - 108 + 1) * self.ui_scale, 
+            (319 - 64 + 1) * self.ui_scale, 
             (215 - 74 + 1) * self.ui_scale
         )
         
         # Punch a transparent hole in the UI ONLY in the central diamond (flood fill)
         arr = pygame.surfarray.pixels3d(self.ui_image)
         alpha = pygame.surfarray.pixels_alpha(self.ui_image)
+        self.transparent_mask = pygame.surfarray.array_alpha(self.ui_image) # To keep original alpha before we edit it
         
         start_x, start_y = int(160 * self.ui_scale), int(100 * self.ui_scale)
         stack = [(start_x, start_y)]
@@ -42,6 +46,7 @@ class Game:
                 continue
             if arr[x, y, 0] <= 10 and arr[x, y, 1] <= 10 and arr[x, y, 2] <= 10:
                 alpha[x, y] = 0
+                self.transparent_mask[x, y] = 0
                 if x + 1 < w: stack.append((x+1, y))
                 if x - 1 >= 0: stack.append((x-1, y))
                 if y + 1 < h: stack.append((x, y+1))
@@ -49,6 +54,8 @@ class Game:
 
         del arr
         del alpha
+
+        self.viewport_surface = pygame.Surface(self.view_rect.size)
 
         self.camera = Camera()
         self.game_map = GameMap(GRID_WIDTH, GRID_HEIGHT)
@@ -92,13 +99,21 @@ class Game:
                     self.game_map.set_all_altitude(1)
             elif event.type == pygame.MOUSEBUTTONDOWN:
                 mx, my = pygame.mouse.get_pos()
-                r, c = self.game_map.screen_to_nearest_corner(
-                    mx, my, self.camera.offset_x, self.camera.offset_y
-                )
-                if event.button == 1:
-                    self.game_map.raise_corner(r, c)
-                elif event.button == 3:
-                    self.game_map.lower_corner(r, c)
+                
+                # Check if click is inside the view rect AND transparent in UI mask
+                if self.view_rect.collidepoint(mx, my):
+                    # Check the alpha of the original UI image at this exact point
+                    if self.transparent_mask[mx, my] == 0:
+                        vp_x = mx - self.view_rect.x
+                        vp_y = my - self.view_rect.y
+                        
+                        r, c = self.game_map.screen_to_nearest_corner(
+                            vp_x, vp_y, self.camera.offset_x, self.camera.offset_y
+                        )
+                        if event.button == 1:
+                            self.game_map.raise_corner(r, c)
+                        elif event.button == 3:
+                            self.game_map.lower_corner(r, c)
 
     def update(self, dt):
         self.camera.update(dt)
@@ -121,41 +136,43 @@ class Game:
 
     def draw(self):
         self.screen.fill(BLACK)
-        
-        # Activer le clipping pour que la map ne dessine que dans la zone prévue
-        self.screen.set_clip(self.view_rect)
+        self.viewport_surface.fill(BLACK)
 
         cam_x, cam_y = self.camera.offset_x, self.camera.offset_y
 
         # Terrain
-        self.game_map.draw(self.screen, cam_x, cam_y)
+        self.game_map.draw(self.viewport_surface, cam_x, cam_y)
 
         # Maisons
-        self.game_map.draw_houses(self.screen, cam_x, cam_y)
+        self.game_map.draw_houses(self.viewport_surface, cam_x, cam_y)
 
         # Peeps
         for peep in self.peeps:
-            peep.draw(self.screen, cam_x, cam_y)
+            peep.draw(self.viewport_surface, cam_x, cam_y)
 
         # Curseur sur le coin le plus proche
         mouse_x, mouse_y = pygame.mouse.get_pos()
-        grid_r, grid_c = self.game_map.screen_to_nearest_corner(
-            mouse_x, mouse_y, cam_x, cam_y
-        )
-        if 0 <= grid_r <= self.game_map.grid_height and 0 <= grid_c <= self.game_map.grid_width:
-            alt = self.game_map.get_corner_altitude(grid_r, grid_c)
-            px, py = self.game_map.world_to_screen(grid_r, grid_c, alt, cam_x, cam_y)
+        if self.view_rect.collidepoint(mouse_x, mouse_y) and self.transparent_mask[mouse_x, mouse_y] == 0:
+            vp_x = mouse_x - self.view_rect.x
+            vp_y = mouse_y - self.view_rect.y
             
-            sprites = Peep.get_sprites()
-            pointer_sprite = sprites.get((8, 11))
-            if pointer_sprite:
-                sprite_rect = pointer_sprite.get_rect(center=(px + 8, py + TILE_HALF_H - alt * 14 + 8))
-                self.screen.blit(pointer_sprite, sprite_rect)
-            else:
-                pygame.draw.circle(self.screen, RED, (px, py + TILE_HALF_H - alt * 14), 3)
+            grid_r, grid_c = self.game_map.screen_to_nearest_corner(
+                vp_x, vp_y, cam_x, cam_y
+            )
+            if 0 <= grid_r <= self.game_map.grid_height and 0 <= grid_c <= self.game_map.grid_width:
+                alt = self.game_map.get_corner_altitude(grid_r, grid_c)
+                px, py = self.game_map.world_to_screen(grid_r, grid_c, alt, cam_x, cam_y)
+                
+                sprites = Peep.get_sprites()
+                pointer_sprite = sprites.get((8, 11))
+                if pointer_sprite:
+                    sprite_rect = pointer_sprite.get_rect(center=(px + 8, py + TILE_HALF_H - alt * 14 + 8))
+                    self.viewport_surface.blit(pointer_sprite, sprite_rect)
+                else:
+                    pygame.draw.circle(self.viewport_surface, RED, (px, py + TILE_HALF_H - alt * 14), 3)
 
-        # Désactiver le clipping
-        self.screen.set_clip(None)
+        # Blit the viewport on screen
+        self.screen.blit(self.viewport_surface, self.view_rect.topleft)
 
         # Draw UI on top of everything
         self.screen.blit(self.ui_image, (0, 0))
@@ -166,11 +183,18 @@ class Game:
     def draw_debug_info(self):
         mouse_x, mouse_y = pygame.mouse.get_pos()
         cam_x, cam_y = self.camera.offset_x, self.camera.offset_y
-        grid_r, grid_c = self.game_map.screen_to_nearest_corner(
-            mouse_x, mouse_y, cam_x, cam_y
-        )
-        alt = self.game_map.get_corner_altitude(grid_r, grid_c)
-        alt_text = str(alt) if alt != -1 else "N/A"
+        
+        alt_text = "N/A"
+        grid_r, grid_c = -1, -1
+        if self.view_rect.collidepoint(mouse_x, mouse_y) and self.transparent_mask[mouse_x, mouse_y] == 0:
+            vp_x = mouse_x - self.view_rect.x
+            vp_y = mouse_y - self.view_rect.y
+            grid_r, grid_c = self.game_map.screen_to_nearest_corner(
+                vp_x, vp_y, cam_x, cam_y
+            )
+            alt = self.game_map.get_corner_altitude(grid_r, grid_c)
+            if alt != -1:
+                alt_text = str(alt)
 
         debug_texts = [
             f"FPS: {self.clock.get_fps():.1f}",

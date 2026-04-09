@@ -29,46 +29,9 @@ def _format_slope_label(prefix, dA, dB, dC, dD):
 
 
 def get_tile_label(row, col):
-    """Retourne le label de mapping pour un tile donné."""
-    labels = []
-
-    if (row, col) == TILE_WATER:
-        labels.append("WATER")
-    if (row, col) == TILE_WATER_2:
-        labels.append("WATER#2")
-    if (row, col) == TILE_FLAT:
-        labels.append("FLAT")
-
-    # SLOPE_TILES
-    for delta, pos in SLOPE_TILES.items():
-        if pos == (row, col):
-            dA, dB, dC, dD = delta
-            desc = _format_slope_label("SLOPE", dA, dB, dC, dD)
-            labels.append(desc)
-
-    # SLOPE_TILES_LOW
-    for delta, pos in SLOPE_TILES_LOW.items():
-        if pos == (row, col):
-            dA, dB, dC, dD = delta
-            desc = _format_slope_label("LOW", dA, dB, dC, dD)
-            labels.append(desc)
-
-    # BUILDING_TILES
-    for name, pos in BUILDING_TILES.items():
-        if pos == (row, col):
-            labels.append(f"BUILD:{name}")
-
-    # CASTLE_9_TILES
-    for name, pos in CASTLE_9_TILES.items():
-        if pos == (row, col):
-            labels.append(f"CASTLE9:{name}")
-
-    # OBJECT_TILES
-    for name, pos in OBJECT_TILES.items():
-        if pos == (row, col):
-            labels.append(f"OBJ:{name}")
-
-    return labels if labels else ["(non mappé)"]
+    """Retourne le label de mapping pour un sprite donné."""
+    # TODO: Ajouter le mapping des sprites (peeps, drapeaux, etc.) si nécessaire.
+    return ["(non mappé)"]
 
 
 def load_and_draw_tiles(screen, image_name, args):
@@ -82,22 +45,27 @@ def load_and_draw_tiles(screen, image_name, args):
         return screen, []
 
     sheet_raw = pygame.image.load(sheet_path).convert()
-    if "AmigaTiles" in image_name:
-        sheet_raw.set_colorkey((0, 49, 0))  # Fond vert transparent
+    if "AmigaSprites" in image_name:
+        sheet_raw.set_colorkey((0, 49, 0))  # Fond vert transparent (Amiga)
+    elif image_name == "Sprites.PNG":
+        # Dans sprite_viewer.py l'original utilise mask sur (0,51,0) ou noir. On peut supposer (0,51,0)
+        sheet_raw.set_colorkey((0, 51, 0))
     sheet = sheet_raw.convert_alpha()
 
-    # Génération automatique de la grille si on utilise une image différente
-    if "AmigaTiles" in image_name:
-        args.tile_width = 32
-        args.tile_height = 24
+    # Génération de la grille pour les sprites
+    if "AmigaSprites" in image_name:
+        args.tile_width = 16
+        args.tile_height = 16
         
-        x_starts = [12 + i * 35 for i in range(9)]
+        start_x, start_y = 11, 10
+        stride_x, stride_y = 20, 20
+        
+        x_starts = [start_x + i * stride_x for i in range(16)]
         x_ends = [x + args.tile_width for x in x_starts]
-        
-        y_starts = [10 + i * 27 for i in range(8)]
+        y_starts = [start_y + j * stride_y for j in range(9)]
         y_ends = [y + args.tile_height for y in y_starts]
 
-    elif image_name != TILES_PATH:
+    elif image_name != "Sprites.PNG":
         w_img, h_img = sheet.get_size()
         x_starts = []
         x_ends = []
@@ -116,11 +84,14 @@ def load_and_draw_tiles(screen, image_name, args):
             y += args.tile_height + args.margin_y
             
     else:
-        # Configuration legacy pour le tileset Populous originel
-        x_starts = [0] + [e + 1 for _, e in TILES_V_LINES]
-        x_ends = [s for s, _ in TILES_V_LINES] + [sheet.get_width()]
-        y_starts = [0] + [e + 1 for _, e in TILES_H_LINES]
-        y_ends = [s for s, _ in TILES_H_LINES] + [sheet.get_height()]
+        # Configuration legacy pour Sprites.PNG
+        args.tile_width = 32
+        args.tile_height = 32
+        w_img, h_img = sheet.get_size()
+        x_starts = [i * 32 for i in range(w_img // 32)]
+        x_ends = [x + 32 for x in x_starts]
+        y_starts = [i * 32 for i in range(h_img // 32)]
+        y_ends = [y + 32 for y in y_starts]
 
     # Filtrer les colonnes/lignes trop petites
     valid_cols = [c for c in range(len(x_starts)) if x_ends[c] - x_starts[c] > 5]
@@ -129,15 +100,11 @@ def load_and_draw_tiles(screen, image_name, args):
     num_cols = len(valid_cols)
     num_rows = len(valid_rows)
 
-    # Extraire les tiles
-    ref_w, ref_h = args.tile_width if image_name != TILES_PATH else TILE_WIDTH, args.tile_height if image_name != TILES_PATH else TILE_HEIGHT
+    # Extraire les sprites
+    ref_w, ref_h = args.tile_width, args.tile_height
     tiles = {}
     for r in valid_rows:
         for c in valid_cols:
-            # Gérer le cas de la dernière ligne restreinte sur les AmigaTiles (seulement 5 tiles)
-            if "AmigaTiles" in image_name and r == 7 and c > 4:
-                continue
-                
             x0, x1 = x_starts[c], x_ends[c]
             y0, y1 = y_starts[r], y_ends[r]
             tw, th = x1 - x0, y1 - y0
@@ -173,7 +140,7 @@ def load_and_draw_tiles(screen, image_name, args):
     screen.fill(bg_color)
     
     # Dessiner les boutons
-    btn_names = ["AmigaTiles1.PNG", "AmigaTiles2.PNG", "AmigaTiles3.PNG", "AmigaTiles4.PNG"]
+    btn_names = ["AmigaSprites1.PNG"]
     buttons = []
     bx = 20
     for bname in btn_names:
@@ -226,9 +193,9 @@ def load_and_draw_tiles(screen, image_name, args):
 def main():
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument("--image", default="AmigaTiles1.PNG", help="Fichier d'image par défaut")
+    parser.add_argument("--image", default="AmigaSprites1.PNG", help="Fichier d'image par défaut")
     parser.add_argument("--tile-width", type=int, default=32, help="Largeur d'un tile")
-    parser.add_argument("--tile-height", type=int, default=24, help="Hauteur d'un tile")
+    parser.add_argument("--tile-height", type=int, default=32, help="Hauteur d'un tile")
     parser.add_argument("--margin-x", type=int, default=1, help="Marge horizontale entre tiles")
     parser.add_argument("--margin-y", type=int, default=1, help="Marge verticale entre tiles")
     args = parser.parse_args()

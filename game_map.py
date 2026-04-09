@@ -5,25 +5,38 @@ from settings import *
 
 def load_tile_surfaces():
     """Charge le tileset et découpe chaque tile en surface pygame."""
-    sheet = pygame.image.load(TILES_PATH).convert_alpha()
+    sheet_raw = pygame.image.load(TILES_PATH).convert()
+    sheet_raw.set_colorkey((0, 49, 0))  # Transparence pour le fond vert des tiles Amiga
+    sheet = sheet_raw.convert_alpha()
 
-    x_starts = [0] + [e + 1 for _, e in TILES_V_LINES]
-    x_ends = [s for s, _ in TILES_V_LINES] + [sheet.get_width()]
-    y_starts = [0] + [e + 1 for _, e in TILES_H_LINES]
-    y_ends = [s for s, _ in TILES_H_LINES] + [sheet.get_height()]
+    # Découpage du nouveau format AmigaTiles (32x24 pixels, décalage x=12 y=10)
+    tile_w = 32
+    tile_h = 24
+    
+    x_starts = [12 + i * 35 for i in range(9)]
+    x_ends = [x + tile_w for x in x_starts]
+    
+    y_starts = [10 + i * 27 for i in range(8)]
+    y_ends = [y + tile_h for y in y_starts]
 
-    ref_w = x_ends[0] - x_starts[0]
-    ref_h = y_ends[0] - y_starts[0]
+    ref_w = tile_w
+    ref_h = tile_h
 
     tiles = {}
     for row in range(len(y_starts)):
         for col in range(len(x_starts)):
+            # Gérer le cas de la dernière ligne restreinte sur les AmigaTiles (seulement 5 tiles)
+            if row == 7 and col > 4:
+                continue
+                
             x0, x1 = x_starts[col], x_ends[col]
             y0, y1 = y_starts[row], y_ends[row]
             tw, th = x1 - x0, y1 - y0
-            if tw < 5 or th < 5:
+            try:
+                sub = sheet.subsurface(pygame.Rect(x0, y0, tw, th)).copy()
+            except ValueError:
                 continue
-            sub = sheet.subsurface(pygame.Rect(x0, y0, tw, th)).copy()
+                
             if tw < ref_w or th < ref_h:
                 padded = pygame.Surface((ref_w, ref_h), pygame.SRCALPHA)
                 padded.blit(sub, (0, 0))
