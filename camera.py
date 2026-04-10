@@ -1,16 +1,21 @@
 import pygame
-from settings import TILE_HALF_W, TILE_HALF_H, GRID_WIDTH, GRID_HEIGHT, MAP_OFFSET_X, MAP_OFFSET_Y
+import settings
 
 class Camera:
     def __init__(self):
-        self.offset_x = 0.0
-        self.offset_y = 0.0
         self.move_timer = 0.0
         self.move_delay = 0.15  # délai entre chaque "à-coup"
 
         # Viewport dimensions appoximatives pour limiter le scroll (630x426)
         self.vw = 630
         self.vh = 426
+        
+        # Position initiale validée (u_cam=-1312, v_cam=1184 correspond au centre environ)
+        u_init = -1312
+        v_init = 1184
+        self.offset_x = (u_init + v_init) / 2
+        self.offset_y = (u_init - v_init) / 4
+
 
     def update(self, dt):
         keys = pygame.key.get_pressed()
@@ -18,51 +23,40 @@ class Camera:
         
         if self.move_timer <= 0:
             moved = False
+            
             # Déplacement par à-coup de la taille d'une tile
             if keys[pygame.K_LEFT] or keys[pygame.K_a]:
-                self.offset_x += TILE_HALF_W * 2
+                self.offset_x += settings.TILE_HALF_W * 2
                 moved = True
             elif keys[pygame.K_RIGHT] or keys[pygame.K_d]:
-                self.offset_x -= TILE_HALF_W * 2
+                self.offset_x -= settings.TILE_HALF_W * 2
                 moved = True
                 
-            # Les Y sont indépendants pour permettre les diagonales
             if keys[pygame.K_UP] or keys[pygame.K_w]:
-                self.offset_y += TILE_HALF_H * 2
+                self.offset_y += settings.TILE_HALF_H * 2
                 moved = True
             elif keys[pygame.K_DOWN] or keys[pygame.K_s]:
-                self.offset_y -= TILE_HALF_H * 2
+                self.offset_y -= settings.TILE_HALF_H * 2
                 moved = True
                 
             if moved:
-                # Limites de la caméra (Losange pour épouser la forme de la carte)
-                # Calculées dynamiquement pour supporter l'agrandissement de la grille.
-                # Base de référence pour une grille 20x20 : (left: 192, right: -320, top: -104, bottom: -360)
-                width_diff = GRID_WIDTH - 20
-                height_diff = GRID_HEIGHT - 20
+                # Limites de la caméra fournies en dur (pour résolution/scale actuel)
+                # u = offset_x + 2 * offset_y
+                # v = offset_x - 2 * offset_y
+                # Limites calculées d'après :
+                # Top: (-128, -208)    -> u = -544,  v = 288
+                # Left: (768, -656)    -> u = -544,  v = 2080
+                # Bottom: (0, -1040)   -> u = -2080, v = 2080
+                # Right: (-896, -592)  -> u = -2080, v = 288
                 
-                left_x = 192 + height_diff * TILE_HALF_W
-                right_x = -320 - width_diff * TILE_HALF_W
-                top_y = -104
-                bottom_y = -360 - (width_diff + height_diff) * TILE_HALF_H
+                u_cam = self.offset_x + 2 * self.offset_y
+                v_cam = self.offset_x - 2 * self.offset_y
                 
-                cx = (left_x + right_x) / 2
-                cy = (top_y + bottom_y) / 2
-                dx_max = (left_x - right_x) / 2
+                # Clamp strict dans le parallélogramme isométrique
+                u_cam = max(-2080, min(u_cam, -544))
+                v_cam = max(288, min(v_cam, 2080))
                 
-                # 1. Clamp au rectangle englobant global
-                self.offset_x = max(right_x, min(self.offset_x, left_x))
-                self.offset_y = max(bottom_y, min(self.offset_y, top_y))
-                
-                # 2. Clamp parfait sur le périmètre du losange
-                dx = abs(self.offset_x - cx)
-                dy = abs(self.offset_y - cy)
-                
-                if dx + 2 * dy > dx_max:
-                    allowed_dy = (dx_max - dx) / 2.0
-                    if self.offset_y > cy:
-                        self.offset_y = cy + allowed_dy
-                    else:
-                        self.offset_y = cy - allowed_dy
+                self.offset_x = (u_cam + v_cam) / 2
+                self.offset_y = (u_cam - v_cam) / 4
                 
                 self.move_timer = self.move_delay

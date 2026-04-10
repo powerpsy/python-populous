@@ -8,94 +8,38 @@ SPRITE_EXTRACT_SIZE = 16  # Taille dans le spritesheet source
 
 
 def load_sprite_surfaces():
-    """Charge le sprite sheet, découpe les sprites 16x16 et les redimensionne en 32x32.
+    """Charge le sprite sheet et découpe les sprites 16x16 selon un format fixe (AmigaSprites)."""
+    sheet_raw = pygame.image.load(SPRITES_PATH).convert()
+    
+    # Fond vert transparent Amiga
+    sheet_raw.set_colorkey((0, 49, 0))
+    sheet = sheet_raw.convert_alpha()
 
-    Détecte les cadres noirs (1px) entourant chaque sprite.
-    Fond gris (102,102,102) entre les cadres, fond vert foncé (0,51,0) à l'intérieur.
-    """
-    from PIL import Image as PILImage
-
-    img = PILImage.open(SPRITES_PATH).convert("RGBA")
-    data = np.array(img)
-    h, w = data.shape[:2]
-
-    # Trouver les rangées de frames via la colonne x=1 (bordure gauche)
-    frame_rows = []
-    in_black = False
-    y_start = 0
-    for y in range(h):
-        is_blk = data[y, 1, 0] < 10 and data[y, 1, 1] < 10 and data[y, 1, 2] < 10
-        if is_blk and not in_black:
-            y_start = y
-            in_black = True
-        elif not is_blk and in_black:
-            frame_rows.append((y_start, y - 1))
-            in_black = False
-    if in_black:
-        frame_rows.append((y_start, h - 1))
-
-    sheet = pygame.image.load(SPRITES_PATH).convert_alpha()
+    start_x, start_y = 11, 10
+    stride_x, stride_y = 20, 20
+    
+    x_starts = [start_x + i * stride_x for i in range(16)]
+    y_starts = [start_y + j * stride_y for j in range(9)]
+    
     sprites = {}
-    for fr_idx, (y_top, y_bot) in enumerate(frame_rows):
-        content_y0 = y_top + 1
-        content_h = min(y_bot - 1 - content_y0 + 1, SPRITE_EXTRACT_SIZE)
-
-        # Colonnes entièrement noires dans cette rangée = bordures verticales
-        full_black_cols = []
-        for x in range(w):
-            region = data[y_top:y_bot + 1, x, :3]
-            if np.all(region < 10):
-                full_black_cols.append(x)
-
-        if not full_black_cols:
-            continue
-        groups = [[full_black_cols[0]]]
-        for c in full_black_cols[1:]:
-            if c == groups[-1][-1] + 1:
-                groups[-1].append(c)
-            else:
-                groups.append([c])
-        col_groups = [(g[0], g[-1]) for g in groups]
-
-        col_idx = 0
-        for i in range(len(col_groups) - 1):
-            cx_start = col_groups[i][-1] + 1
-            cx_end = col_groups[i + 1][0] - 1
-            cw = cx_end - cx_start + 1
-            if cw < 3:
+    for r, y0 in enumerate(y_starts):
+        for c, x0 in enumerate(x_starts):
+            try:
+                sub = sheet.subsurface(pygame.Rect(x0, y0, SPRITE_EXTRACT_SIZE, SPRITE_EXTRACT_SIZE)).copy()
+            except ValueError:
                 continue
 
-            # Centrer si > 16px
-            if cw > SPRITE_EXTRACT_SIZE:
-                offset = (cw - SPRITE_EXTRACT_SIZE) // 2
-                cx_start += offset
-                cw = SPRITE_EXTRACT_SIZE
-
-            sw = min(cw, SPRITE_EXTRACT_SIZE)
-            sh = min(content_h, SPRITE_EXTRACT_SIZE)
-            sub = sheet.subsurface(pygame.Rect(cx_start, content_y0, sw, sh)).copy()
-
-            # Padder à 16x16 si nécessaire
-            if sw < SPRITE_EXTRACT_SIZE or sh < SPRITE_EXTRACT_SIZE:
-                padded = pygame.Surface((SPRITE_EXTRACT_SIZE, SPRITE_EXTRACT_SIZE), pygame.SRCALPHA)
-                padded.blit(sub, (0, 0))
-                sub = padded
-
-            # Supprimer le fond vert foncé (0,51,0) et noir → transparent
-            arr = pygame.surfarray.pixels3d(sub)   # (w, h, 3)
-            alpha = pygame.surfarray.pixels_alpha(sub)  # (w, h)
-            mask = (
-                ((arr[:, :, 0] < 20) & (arr[:, :, 1] < 70) & (arr[:, :, 2] < 20)) |
-                ((arr[:, :, 0] == 0) & (arr[:, :, 1] == 0) & (arr[:, :, 2] == 0))
-            )
+            # Supprimer le fond noir résiduel → transparent
+            arr = pygame.surfarray.pixels3d(sub)
+            alpha = pygame.surfarray.pixels_alpha(sub)
+            mask = ((arr[:, :, 0] == 0) & (arr[:, :, 1] == 0) & (arr[:, :, 2] == 0))
             alpha[mask] = 0
             del arr, alpha  # libérer les locks surfarray
 
-            # Redimensionner 16→32 (nearest neighbor pour pixel art net)
+            # Redimensionner à la taille finale (iscale géré dans settings.py par SPRITE_SIZE)
             sub = pygame.transform.scale(sub, (SPRITE_SIZE, SPRITE_SIZE))
 
-            sprites[(fr_idx, col_idx)] = sub
-            col_idx += 1
+            sprites[(r, c)] = sub
 
     return sprites
 
@@ -259,7 +203,7 @@ class Peep:
 
         sx, sy = self.game_map.world_to_screen(self.y, self.x, alt, cam_x, cam_y)
         # Sol visuel : même formule que le curseur rouge
-        ground_y = sy + TILE_HALF_H - int(alt * 13)
+        ground_y = sy + TILE_HALF_H - int(alt * 13 * SCALE)
 
         sprites = self.get_sprites()
         frames = WALK_FRAMES.get(self.facing, WALK_FRAMES['IDLE'])
@@ -295,7 +239,7 @@ class Peep:
                 pygame.draw.rect(surface, (255, 140, 0), (bar_x, bar_y + 3, orange_w, 2))
         else:
             # Fallback : petit cercle
-            pygame.draw.circle(surface, (255, 220, 120), (sx, ground_y), 3)
+            pygame.draw.circle(surface, (255, 220, 120), (sx, ground_y), 3 * SCALE)
 
     def is_removable(self):
         return self.dead and self.death_timer > 3.0

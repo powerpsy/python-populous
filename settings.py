@@ -4,6 +4,9 @@ import os
 SCREEN_WIDTH = 1280
 SCREEN_HEIGHT = 720
 
+# === Échelle globale ===
+SCALE = 2
+
 # === Couleurs ===
 BLACK = (0, 0, 0)
 WHITE = (255, 255, 255)
@@ -20,31 +23,31 @@ GRID_HEIGHT = 40
 # === Altitude ===
 ALTITUDE_MIN = 0
 ALTITUDE_MAX = 7
-ALTITUDE_PIXEL_STEP = 1
+ALTITUDE_PIXEL_STEP = 1 * SCALE
 
 # === Tile isométrique ===
-TILE_WIDTH = 32     # largeur d'un tile dans le spritesheet
-TILE_HEIGHT = 24    # hauteur d'un tile dans le spritesheet
-TILE_HALF_W = 16   # TILE_WIDTH // 2
-TILE_HALF_H = 8  # valeur ajustée visuellement
+TILE_WIDTH = 32 * SCALE     # largeur d'un tile mis à l'échelle
+TILE_HEIGHT = 24 * SCALE    # hauteur d'un tile mis à l'échelle
+TILE_HALF_W = 16 * SCALE   # TILE_WIDTH // 2
+TILE_HALF_H = 8 * SCALE  # valeur ajustée visuellement
 
 # === Offsets pour centrer la carte ===
-# Avec la nouvelle architecture Viewport, la taille du viewport est 768x426.
-MAP_OFFSET_X = 768 // 2
-MAP_OFFSET_Y = 100
+# On centre la carte sur l'écran
+MAP_OFFSET_X = SCREEN_WIDTH // 2
+MAP_OFFSET_Y = SCREEN_HEIGHT // 4
 
 # === Chemins ===
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 GFX_DIR = os.path.join(BASE_DIR, "data", "gfx")
 TILES_PATH = os.path.join(GFX_DIR, "AmigaTiles1.PNG")
-SPRITES_PATH = os.path.join(GFX_DIR, "Sprites.PNG")
+SPRITES_PATH = os.path.join(GFX_DIR, "AmigaSprites1.PNG")
 
 # === Tiles spritesheet grid (lignes rouges dans Tiles.PNG) ===
 TILES_V_LINES = [(65,66),(132,133),(199,200),(266,267),(333,334),(400,401),(467,468),(534,535),(601,602)]
 TILES_H_LINES = [(48,49),(98,99),(148,149),(198,199),(248,249),(298,299),(348,349)]
 
 # === Sprites ===
-SPRITE_SIZE = 32
+SPRITE_SIZE = 16 * SCALE
 
 # === Mapping des tiles terrain ===
 # Les coins d'une case : A=top(NW), B=right(NE), C=bottom(SE), D=left(SW)

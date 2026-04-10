@@ -41,6 +41,10 @@ def load_tile_surfaces():
                 padded = pygame.Surface((ref_w, ref_h), pygame.SRCALPHA)
                 padded.blit(sub, (0, 0))
                 sub = padded
+                
+            # Scale x3 (or by SCALE factor)
+            sub = pygame.transform.scale(sub, (ref_w * SCALE, ref_h * SCALE))
+            
             tiles[(row, col)] = sub
     return tiles
 
@@ -185,9 +189,9 @@ class GameMap:
         if tile_key in (TILE_WATER, TILE_WATER_2):
             blit_y = sy
         elif tile_key == TILE_FLAT:
-            blit_y = sy - max(0, min_alt - 1) * 15
+            blit_y = sy - max(0, min_alt - 1) * 15 * SCALE
         else:
-            blit_y = sy - min_alt * 15
+            blit_y = sy - min_alt * 15 * SCALE
 
         # Remplir les faces latérales visibles avec des copies empilées de TILE_FLAT
         # gap = distance en pixels entre blit_y et le niveau de sol de référence (alt=0)
@@ -203,17 +207,49 @@ class GameMap:
 
         surface.blit(tile_surf, (blit_x, blit_y))
 
+    def screen_to_grid(self, sx, sy, cam_x=0, cam_y=0):
+        import settings
+        X = sx - settings.MAP_OFFSET_X - cam_x
+        Y = sy - settings.MAP_OFFSET_Y - cam_y
+        
+        U = X / settings.TILE_HALF_W
+        V = Y / settings.TILE_HALF_H
+        
+        c = (U + V) / 2
+        r = (V - U) / 2
+        return int(r), int(c)
+
+    def get_visible_bounds(self, cam_x, cam_y):
+        # On force exactement un centre d'affichage et un carré de 8x8 (rayon de 4)
+        center_r, center_c = self.screen_to_grid(382, 272, cam_x, cam_y)
+        
+        # 8 tuiles = de center-4 à center+4 (qui fera exactemeent 8 itérations)
+        radius = 4
+        
+        start_r = max(0, center_r - radius)
+        end_r = min(self.grid_height, center_r + radius)
+        start_c = max(0, center_c - radius)
+        end_c = min(self.grid_width, center_c + radius)
+        return start_r, end_r, start_c, end_c
+
     def draw(self, surface, cam_x=0, cam_y=0):
-        for r in range(self.grid_height):
-            for c in range(self.grid_width):
+        start_r, end_r, start_c, end_c = self.get_visible_bounds(cam_x, cam_y)
+
+        for r in range(start_r, end_r):
+            for c in range(start_c, end_c):
                 self.draw_tile(surface, r, c, cam_x, cam_y)
 
     def draw_houses(self, surface, cam_x=0, cam_y=0):
+        start_r, end_r, start_c, end_c = self.get_visible_bounds(cam_x, cam_y)
+
         from peep import Peep
         peep_sprites = Peep.get_sprites()
         flag_surf = peep_sprites.get((4, self.flag_frame))
 
         for house in sorted(self.houses, key=lambda h: h.r + h.c):
+            if house.r < start_r or house.r >= end_r or house.c < start_c or house.c >= end_c:
+                continue
+                
             alt = self.get_corner_altitude(house.r, house.c)
             tile_key = BUILDING_TILES.get(house.building_type, BUILDING_TILES["hut"])
             tile_surf = self.tile_surfaces.get(tile_key)
@@ -222,7 +258,7 @@ class GameMap:
             sx, sy = self.world_to_screen(house.r, house.c, alt, cam_x, cam_y)
             blit_x = sx - TILE_HALF_W
             # Même offset d'altitude que draw_tile pour TILE_FLAT
-            blit_y = sy - max(0, alt - 1) * 15 - TILE_HALF_H
+            blit_y = sy - max(0, alt - 1) * 15 * SCALE - TILE_HALF_H
             surface.blit(tile_surf, (blit_x, blit_y))
 
             # Drapeau d'équipe animé (sprites 4,0 et 4,1)
