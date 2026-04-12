@@ -40,15 +40,7 @@ class Camera:
                 moved = True
                 
             if moved:
-                # Limites de la caméra fournies en dur (pour résolution/scale actuel)
-                # u = offset_x + 2 * offset_y
-                # v = offset_x - 2 * offset_y
-                # Limites calculées d'après :
-                # Top: (-128, -208)    -> u = -544,  v = 288
-                # Left: (768, -656)    -> u = -544,  v = 2080
-                # Bottom: (0, -1040)   -> u = -2080, v = 2080
-                # Right: (-896, -592)  -> u = -2080, v = 288
-                
+               
                 u_cam = self.offset_x + 2 * self.offset_y
                 v_cam = self.offset_x - 2 * self.offset_y
                 

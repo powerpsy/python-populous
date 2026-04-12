@@ -1,14 +1,13 @@
 import pygame, time
 pygame.init()
 pygame.display.set_mode((1,1), pygame.HIDDEN)
-ui_raw = pygame.image.load('UI.png').convert_alpha()
-ui_image = pygame.transform.scale(ui_raw, (ui_raw.get_width() * 3, ui_raw.get_height() * 3))
+ui_image = pygame.image.load('UI.png').convert_alpha()
 
 t0 = time.time()
 arr = pygame.surfarray.pixels3d(ui_image)
 alpha = pygame.surfarray.pixels_alpha(ui_image)
 
-start_x, start_y = int(160 * 3), int(100 * 3)
+start_x, start_y = 160, 100
 stack = [(start_x, start_y)]
 w, h = ui_image.get_size()
 

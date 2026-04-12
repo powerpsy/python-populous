@@ -42,9 +42,7 @@ def load_tile_surfaces():
                 padded.blit(sub, (0, 0))
                 sub = padded
                 
-            # Scale x3 (or by SCALE factor)
-            sub = pygame.transform.scale(sub, (ref_w * SCALE, ref_h * SCALE))
-            
+            # No scaling
             tiles[(row, col)] = sub
     return tiles
 
@@ -189,9 +187,9 @@ class GameMap:
         if tile_key in (TILE_WATER, TILE_WATER_2):
             blit_y = sy
         elif tile_key == TILE_FLAT:
-            blit_y = sy - max(0, min_alt - 1) * 15 * SCALE
+            blit_y = sy - max(0, min_alt - 1) * 15
         else:
-            blit_y = sy - min_alt * 15 * SCALE
+            blit_y = sy - min_alt * 15
 
         # Remplir les faces latérales visibles avec des copies empilées de TILE_FLAT
         # gap = distance en pixels entre blit_y et le niveau de sol de référence (alt=0)
@@ -221,7 +219,7 @@ class GameMap:
 
     def get_visible_bounds(self, cam_x, cam_y):
         # On force exactement un centre d'affichage et un carré de 8x8 (rayon de 4)
-        center_r, center_c = self.screen_to_grid(382, 272, cam_x, cam_y)
+        center_r, center_c = self.screen_to_grid(191, 145, cam_x, cam_y)
         
         # 8 tuiles = de center-4 à center+4 (qui fera exactemeent 8 itérations)
         radius = 4
@@ -258,7 +256,7 @@ class GameMap:
             sx, sy = self.world_to_screen(house.r, house.c, alt, cam_x, cam_y)
             blit_x = sx - TILE_HALF_W
             # Même offset d'altitude que draw_tile pour TILE_FLAT
-            blit_y = sy - max(0, alt - 1) * 15 * SCALE - TILE_HALF_H
+            blit_y = sy - max(0, alt - 1) * 15 - TILE_HALF_H
             surface.blit(tile_surf, (blit_x, blit_y))
 
             # Drapeau d'équipe animé (sprites 4,0 et 4,1)

@@ -4,9 +4,6 @@ import os
 SCREEN_WIDTH = 1280
 SCREEN_HEIGHT = 720
 
-# === Échelle globale ===
-SCALE = 2
-
 # === Couleurs ===
 BLACK = (0, 0, 0)
 WHITE = (255, 255, 255)
@@ -23,13 +20,13 @@ GRID_HEIGHT = 40
 # === Altitude ===
 ALTITUDE_MIN = 0
 ALTITUDE_MAX = 7
-ALTITUDE_PIXEL_STEP = 1 * SCALE
+ALTITUDE_PIXEL_STEP = 1
 
 # === Tile isométrique ===
-TILE_WIDTH = 32 * SCALE     # largeur d'un tile mis à l'échelle
-TILE_HEIGHT = 24 * SCALE    # hauteur d'un tile mis à l'échelle
-TILE_HALF_W = 16 * SCALE   # TILE_WIDTH // 2
-TILE_HALF_H = 8 * SCALE  # valeur ajustée visuellement
+TILE_WIDTH = 32
+TILE_HEIGHT = 24
+TILE_HALF_W = 16
+TILE_HALF_H = 8
 
 # === Offsets pour centrer la carte ===
 # On centre la carte sur l'écran
@@ -47,7 +44,7 @@ TILES_V_LINES = [(65,66),(132,133),(199,200),(266,267),(333,334),(400,401),(467,
 TILES_H_LINES = [(48,49),(98,99),(148,149),(198,199),(248,249),(298,299),(348,349)]
 
 # === Sprites ===
-SPRITE_SIZE = 16 * SCALE
+SPRITE_SIZE = 16
 
 # === Mapping des tiles terrain ===
 # Les coins d'une case : A=top(NW), B=right(NE), C=bottom(SE), D=left(SW)

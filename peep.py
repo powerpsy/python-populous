@@ -36,7 +36,6 @@ def load_sprite_surfaces():
             alpha[mask] = 0
             del arr, alpha  # libérer les locks surfarray
 
-            # Redimensionner à la taille finale (iscale géré dans settings.py par SPRITE_SIZE)
             sub = pygame.transform.scale(sub, (SPRITE_SIZE, SPRITE_SIZE))
 
             sprites[(r, c)] = sub
@@ -203,7 +202,7 @@ class Peep:
 
         sx, sy = self.game_map.world_to_screen(self.y, self.x, alt, cam_x, cam_y)
         # Sol visuel : même formule que le curseur rouge
-        ground_y = sy + TILE_HALF_H - int(alt * 13 * SCALE)
+        ground_y = sy + TILE_HALF_H - int(alt * 13)
 
         sprites = self.get_sprites()
         frames = WALK_FRAMES.get(self.facing, WALK_FRAMES['IDLE'])
@@ -239,7 +238,7 @@ class Peep:
                 pygame.draw.rect(surface, (255, 140, 0), (bar_x, bar_y + 3, orange_w, 2))
         else:
             # Fallback : petit cercle
-            pygame.draw.circle(surface, (255, 220, 120), (sx, ground_y), 3 * SCALE)
+            pygame.draw.circle(surface, (255, 220, 120), (sx, ground_y), 3)
 
     def is_removable(self):
         return self.dead and self.death_timer > 3.0

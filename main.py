@@ -17,15 +17,19 @@ class Game:
         # Charger l'interface pour déterminer la taille de l'écran
         ui_path = os.path.join(GFX_DIR, "AmigaUI.png")
         ui_raw = pygame.image.load(ui_path)
-        self.ui_scale = SCALE
-        self.ui_image_tmp = pygame.transform.scale(ui_raw, (ui_raw.get_width() * self.ui_scale, ui_raw.get_height() * self.ui_scale))
         
-        # Initialiser l'écran basé sur l'UI
-        self.screen = pygame.display.set_mode(self.ui_image_tmp.get_size())
+        self.base_size = ui_raw.get_size()
+        self.display_scale = 3
+        
+        # Initialiser l'écran basé sur l'UI avec l'échelle d'affichage
+        self.screen = pygame.display.set_mode((self.base_size[0] * self.display_scale, self.base_size[1] * self.display_scale))
         pygame.display.set_caption("Populous")
-        self.ui_image = self.ui_image_tmp.convert_alpha()
         
-        # Dimensions de la zone de render (plein écran)
+        self.ui_image = ui_raw.convert_alpha()
+        self.internal_surface = pygame.Surface(self.base_size)
+        self.internal_surface.blit(self.ui_image, (0, 0))
+        
+        # Dimensions de la zone de render (plein écran à l'échelle 1)
         self.view_rect = pygame.Rect(0, 0, self.ui_image.get_width(), self.ui_image.get_height())
         
         import settings
@@ -35,15 +39,14 @@ class Game:
         settings.SCREEN_WIDTH = self.ui_image.get_width()
         settings.SCREEN_HEIGHT = self.ui_image.get_height()
         # Coordonnées en dur pour la pointe de la zone diamant
-        settings.MAP_OFFSET_X = 382
-        settings.MAP_OFFSET_Y = 145
+        settings.MAP_OFFSET_X = 191
+        settings.MAP_OFFSET_Y = 72
         
         for mod in (game_map, peep, settings):
             mod.SCREEN_WIDTH = settings.SCREEN_WIDTH
             mod.SCREEN_HEIGHT = settings.SCREEN_HEIGHT
             mod.MAP_OFFSET_X = settings.MAP_OFFSET_X
             mod.MAP_OFFSET_Y = settings.MAP_OFFSET_Y
-            mod.SCALE = SCALE
             mod.TILE_WIDTH = TILE_WIDTH
             mod.TILE_HEIGHT = TILE_HEIGHT
             mod.TILE_HALF_W = TILE_HALF_W
@@ -57,7 +60,7 @@ class Game:
         alpha = pygame.surfarray.pixels_alpha(self.ui_image)
         self.transparent_mask = pygame.surfarray.array_alpha(self.ui_image) # To keep original alpha before we edit it
         
-        start_x, start_y = int(160 * self.ui_scale), int(100 * self.ui_scale)
+        start_x, start_y = 160, 100
         stack = [(start_x, start_y)]
         w, h = self.ui_image.get_size()
         
@@ -100,82 +103,6 @@ class Game:
             self.update(dt)
             self.draw()
 
-    def change_scale(self):
-        global SCALE, ALTITUDE_PIXEL_STEP, TILE_WIDTH, TILE_HEIGHT, TILE_HALF_W, TILE_HALF_H, SPRITE_SIZE
-        import game_map
-        import peep
-        import settings
-        
-        # Modifier l'échelle globalement
-        settings_update = {
-            'SCALE': (SCALE % 4) + 1
-        }
-        ns = settings_update['SCALE']
-        settings_update['ALTITUDE_PIXEL_STEP'] = 1 * ns
-        settings_update['TILE_WIDTH'] = 32 * ns
-        settings_update['TILE_HEIGHT'] = 24 * ns
-        settings_update['TILE_HALF_W'] = 16 * ns
-        settings_update['TILE_HALF_H'] = 8 * ns
-        settings_update['SPRITE_SIZE'] = 16 * ns
-        
-        # Mettre à jour les variables dans les différents modules (global scope)
-        ui_path = os.path.join(GFX_DIR, "AmigaUI.png")
-        ui_raw = pygame.image.load(ui_path).convert_alpha()
-        
-        settings_update['SCREEN_WIDTH'] = ui_raw.get_width() * settings_update['SCALE']
-        settings_update['SCREEN_HEIGHT'] = ui_raw.get_height() * settings_update['SCALE']
-        settings_update['MAP_OFFSET_X'] = 382
-        settings_update['MAP_OFFSET_Y'] = 145
-
-        SCALE = settings_update['SCALE']
-        ALTITUDE_PIXEL_STEP = settings_update['ALTITUDE_PIXEL_STEP']
-        TILE_WIDTH = settings_update['TILE_WIDTH']
-        TILE_HEIGHT = settings_update['TILE_HEIGHT']
-        TILE_HALF_W = settings_update['TILE_HALF_W']
-        TILE_HALF_H = settings_update['TILE_HALF_H']
-        SPRITE_SIZE = settings_update['SPRITE_SIZE']
-        
-        for mod in (game_map, peep, settings):
-            for k, v in settings_update.items():
-                setattr(mod, k, v)
-        
-        # Recharger les images et textures en fonction du nouveau SCALE
-        peep.Peep._sprites = peep.load_sprite_surfaces()
-        self.game_map.tile_surfaces = game_map.load_tile_surfaces()
-        
-        # Reconstruire l'interface UI
-        self.ui_scale = SCALE
-        self.ui_image = pygame.transform.scale(ui_raw, (ui_raw.get_width() * self.ui_scale, ui_raw.get_height() * self.ui_scale))
-        
-        # Redimensionner la fenêtre
-        self.screen = pygame.display.set_mode(self.ui_image.get_size())
-        self.view_rect = pygame.Rect(0, 0, self.ui_image.get_width(), self.ui_image.get_height())
-        
-        arr = pygame.surfarray.pixels3d(self.ui_image)
-        alpha = pygame.surfarray.pixels_alpha(self.ui_image)
-        self.transparent_mask = pygame.surfarray.array_alpha(self.ui_image)
-        
-        start_x, start_y = int(160 * self.ui_scale), int(100 * self.ui_scale)
-        stack = [(start_x, start_y)]
-        w, h = self.ui_image.get_size()
-        
-        while stack:
-            x, y = stack.pop()
-            if alpha[x, y] == 0:
-                continue
-            if arr[x, y, 0] <= 10 and arr[x, y, 1] <= 10 and arr[x, y, 2] <= 10:
-                alpha[x, y] = 0
-                self.transparent_mask[x, y] = 0
-                if x + 1 < w: stack.append((x+1, y))
-                if x - 1 >= 0: stack.append((x-1, y))
-                if y + 1 < h: stack.append((x, y+1))
-                if y - 1 >= 0: stack.append((x, y-1))
-
-        del arr
-        del alpha
-
-        self.viewport_surface = pygame.Surface(self.view_rect.size, pygame.SRCALPHA)
-
     def events(self):
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -184,7 +111,8 @@ class Game:
                 if event.key == pygame.K_ESCAPE:
                     self.running = False
                 elif event.key == pygame.K_TAB:
-                    self.change_scale()
+                    self.display_scale = (self.display_scale % 4) + 1
+                    self.screen = pygame.display.set_mode((self.base_size[0] * self.display_scale, self.base_size[1] * self.display_scale))
                 elif event.key == pygame.K_F1:
                     self.peeps.clear()
                 elif event.key == pygame.K_F2:
@@ -198,6 +126,8 @@ class Game:
                     self.game_map.set_all_altitude(1)
             elif event.type == pygame.MOUSEBUTTONDOWN:
                 mx, my = pygame.mouse.get_pos()
+                mx //= self.display_scale
+                my //= self.display_scale
                 
                 # Clics souris (on permet partout puisque le viewport est plein écran)
                 if self.view_rect.collidepoint(mx, my):
@@ -232,8 +162,8 @@ class Game:
         self.peeps.extend(new_peeps)
 
     def draw(self):
-        self.screen.fill(BLACK)
-        self.screen.blit(self.ui_image, (0, 0))
+        self.internal_surface.fill(BLACK)
+        self.internal_surface.blit(self.ui_image, (0, 0))
         self.viewport_surface.fill((0, 0, 0, 0))
 
         cam_x, cam_y = self.camera.offset_x, self.camera.offset_y
@@ -245,17 +175,18 @@ class Game:
         self.game_map.draw_houses(self.viewport_surface, cam_x, cam_y)
 
         # Peeps
-        vw, vh = self.viewport_surface.get_size()
-        center_r, center_c = self.game_map.screen_to_grid(vw / 2, vh / 2, cam_x, cam_y)
-        radius = 5
+        start_r, end_r, start_c, end_c = self.game_map.get_visible_bounds(cam_x, cam_y)
 
         for peep in self.peeps:
-            if abs(peep.y - center_r) > radius or abs(peep.x - center_c) > radius:
+            if peep.y < start_r or peep.y >= end_r or peep.x < start_c or peep.x >= end_c:
                 continue
             peep.draw(self.viewport_surface, cam_x, cam_y)
 
         # Curseur sur le coin le plus proche
         mouse_x, mouse_y = pygame.mouse.get_pos()
+        mouse_x //= self.display_scale
+        mouse_y //= self.display_scale
+
         if self.view_rect.collidepoint(mouse_x, mouse_y):
             vp_x = mouse_x - self.view_rect.x
             vp_y = mouse_y - self.view_rect.y
@@ -270,19 +201,27 @@ class Game:
                 sprites = Peep.get_sprites()
                 pointer_sprite = sprites.get((8, 11))
                 if pointer_sprite:
-                    sprite_rect = pointer_sprite.get_rect(center=(px + 8 * SCALE, py + TILE_HALF_H - alt * 14 * SCALE + 8 * SCALE))
+                    sprite_rect = pointer_sprite.get_rect(center=(px + 5, py + TILE_HALF_H - alt * 14 + 4))
                     self.viewport_surface.blit(pointer_sprite, sprite_rect)
                 else:
-                    pygame.draw.circle(self.viewport_surface, RED, (px, py + TILE_HALF_H - alt * 14 * SCALE), 3 * SCALE)
+                    pygame.draw.circle(self.viewport_surface, RED, (px, py + TILE_HALF_H - alt * 14), 3)
 
         # Blit the viewport on screen (over the UI)
-        self.screen.blit(self.viewport_surface, self.view_rect.topleft)
+        self.internal_surface.blit(self.viewport_surface, self.view_rect.topleft)
 
         self.draw_debug_info()
+        
+        # Scale internal surface to display window size
+        scaled_surface = pygame.transform.scale(self.internal_surface, self.screen.get_size())
+        self.screen.blit(scaled_surface, (0, 0))
+        
         pygame.display.flip()
 
     def draw_debug_info(self):
         mouse_x, mouse_y = pygame.mouse.get_pos()
+        mouse_x //= self.display_scale
+        mouse_y //= self.display_scale
+
         cam_x, cam_y = self.camera.offset_x, self.camera.offset_y
         
         alt_text = "N/A"
@@ -299,7 +238,7 @@ class Game:
 
         debug_texts = [
             f"FPS: {self.clock.get_fps():.1f}",
-            f"Scale: x{SCALE}",
+            f"Scale: x{self.display_scale}",
             f"Mouse: ({mouse_x}, {mouse_y})",
             f"Corner: ({grid_r}, {grid_c}) Alt: {alt_text}",
             f"Camera: ({int(cam_x)}, {int(cam_y)})",
@@ -308,7 +247,7 @@ class Game:
         ]
         for i, text in enumerate(debug_texts):
             surf = self.font.render(text, True, WHITE)
-            self.screen.blit(surf, (10, 10 + 18 * i))
+            self.internal_surface.blit(surf, (10, 10 + 18 * i))
 
 
 if __name__ == '__main__':
