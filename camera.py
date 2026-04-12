@@ -4,51 +4,46 @@ import settings
 class Camera:
     def __init__(self):
         self.move_timer = 0.0
-        self.move_delay = 0.15  # délai entre chaque "à-coup"
-
-        # Viewport dimensions appoximatives pour limiter le scroll (630x426)
-        self.vw = 630
-        self.vh = 426
         
-        # Position initiale validée (u_cam=-1312, v_cam=1184 correspond au centre environ)
-        u_init = -1312
-        v_init = 1184
-        self.offset_x = (u_init + v_init) / 2
-        self.offset_y = (u_init - v_init) / 4
-
+        # Position logique de la caméra en coordonnées de grille (r, c)
+        # Correspond au coin supérieur de la zone 8x8 affichée
+        self.r = float(settings.GRID_HEIGHT // 2 - 4)
+        self.c = float(settings.GRID_WIDTH // 2 - 4)
 
     def update(self, dt):
         keys = pygame.key.get_pressed()
-        self.move_timer -= dt
         
-        if self.move_timer <= 0:
-            moved = False
+        self.move_timer -= dt
+        if self.move_timer > 0:
+            return
+
+        moved = False
+        dr, dc = 0, 0
+        
+        # Mouvement strictement par case entière
+        if keys[pygame.K_LEFT] or keys[pygame.K_a]:
+            dr, dc = 1, -1
+            moved = True
+        elif keys[pygame.K_RIGHT] or keys[pygame.K_d]:
+            dr, dc = -1, 1
+            moved = True
+        elif keys[pygame.K_UP] or keys[pygame.K_w]:
+            dr, dc = -1, -1
+            moved = True
+        elif keys[pygame.K_DOWN] or keys[pygame.K_s]:
+            dr, dc = 1, 1
+            moved = True
             
-            # Déplacement par à-coup de la taille d'une tile
-            if keys[pygame.K_LEFT] or keys[pygame.K_a]:
-                self.offset_x += settings.TILE_HALF_W * 2
-                moved = True
-            elif keys[pygame.K_RIGHT] or keys[pygame.K_d]:
-                self.offset_x -= settings.TILE_HALF_W * 2
-                moved = True
-                
-            if keys[pygame.K_UP] or keys[pygame.K_w]:
-                self.offset_y += settings.TILE_HALF_H * 2
-                moved = True
-            elif keys[pygame.K_DOWN] or keys[pygame.K_s]:
-                self.offset_y -= settings.TILE_HALF_H * 2
-                moved = True
-                
-            if moved:
-               
-                u_cam = self.offset_x + 2 * self.offset_y
-                v_cam = self.offset_x - 2 * self.offset_y
-                
-                # Clamp strict dans le parallélogramme isométrique
-                u_cam = max(-2080, min(u_cam, -544))
-                v_cam = max(288, min(v_cam, 2080))
-                
-                self.offset_x = (u_cam + v_cam) / 2
-                self.offset_y = (u_cam - v_cam) / 4
-                
-                self.move_timer = self.move_delay
+        if moved:
+            self.r += float(dr)
+            self.c += float(dc)
+            
+            # Limites strictes basées sur la grille
+            # La zone affichée fait 8x8 tuiles, on bloque pour ne jamais voir hors-carte
+            max_r = float(settings.GRID_HEIGHT - 8)
+            max_c = float(settings.GRID_WIDTH - 8)
+            
+            self.r = max(0.0, min(self.r, max_r))
+            self.c = max(0.0, min(self.c, max_c))
+            
+            self.move_timer = 0.15  # Délai entre deux déplacements (en secondes)

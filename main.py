@@ -39,8 +39,8 @@ class Game:
         settings.SCREEN_WIDTH = self.ui_image.get_width()
         settings.SCREEN_HEIGHT = self.ui_image.get_height()
         # Coordonnées en dur pour la pointe de la zone diamant
-        settings.MAP_OFFSET_X = 191
-        settings.MAP_OFFSET_Y = 72
+        settings.MAP_OFFSET_X = 192
+        settings.MAP_OFFSET_Y = 64
         
         for mod in (game_map, peep, settings):
             mod.SCREEN_WIDTH = settings.SCREEN_WIDTH
@@ -54,38 +54,12 @@ class Game:
             mod.SPRITE_SIZE = SPRITE_SIZE
             mod.ALTITUDE_PIXEL_STEP = ALTITUDE_PIXEL_STEP
 
-        
-        # Punch a transparent hole in the UI ONLY in the central diamond (flood fill)
-        arr = pygame.surfarray.pixels3d(self.ui_image)
-        alpha = pygame.surfarray.pixels_alpha(self.ui_image)
-        self.transparent_mask = pygame.surfarray.array_alpha(self.ui_image) # To keep original alpha before we edit it
-        
-        start_x, start_y = 160, 100
-        stack = [(start_x, start_y)]
-        w, h = self.ui_image.get_size()
-        
-        while stack:
-            x, y = stack.pop()
-            if alpha[x, y] == 0:
-                continue
-            if arr[x, y, 0] <= 10 and arr[x, y, 1] <= 10 and arr[x, y, 2] <= 10:
-                alpha[x, y] = 0
-                self.transparent_mask[x, y] = 0
-                if x + 1 < w: stack.append((x+1, y))
-                if x - 1 >= 0: stack.append((x-1, y))
-                if y + 1 < h: stack.append((x, y+1))
-                if y - 1 >= 0: stack.append((x, y-1))
-
-        del arr
-        del alpha
-
-        self.viewport_surface = pygame.Surface(self.view_rect.size, pygame.SRCALPHA)
-
         self.camera = Camera()
         self.game_map = GameMap(GRID_WIDTH, GRID_HEIGHT)
         self.game_map.randomize()
         self.peeps = []
         self.running = True
+        self.show_debug = True
 
     def spawn_initial_peeps(self, count):
         for _ in range(count):
@@ -124,6 +98,8 @@ class Game:
                     self.spawn_initial_peeps(10)
                 elif event.key == pygame.K_F4:
                     self.game_map.set_all_altitude(1)
+                elif event.unicode == '§':
+                    self.show_debug = not self.show_debug
             elif event.type == pygame.MOUSEBUTTONDOWN:
                 mx, my = pygame.mouse.get_pos()
                 mx //= self.display_scale
@@ -135,7 +111,7 @@ class Game:
                     vp_y = my - self.view_rect.y
                     
                     r, c = self.game_map.screen_to_nearest_corner(
-                        vp_x, vp_y, self.camera.offset_x, self.camera.offset_y
+                        vp_x, vp_y, self.camera.r, self.camera.c
                     )
                     if event.button == 1:
                         self.game_map.raise_corner(r, c)
@@ -164,23 +140,22 @@ class Game:
     def draw(self):
         self.internal_surface.fill(BLACK)
         self.internal_surface.blit(self.ui_image, (0, 0))
-        self.viewport_surface.fill((0, 0, 0, 0))
 
-        cam_x, cam_y = self.camera.offset_x, self.camera.offset_y
+        cam_r, cam_c = self.camera.r, self.camera.c
 
         # Terrain
-        self.game_map.draw(self.viewport_surface, cam_x, cam_y)
+        self.game_map.draw(self.internal_surface, cam_r, cam_c)
 
         # Maisons
-        self.game_map.draw_houses(self.viewport_surface, cam_x, cam_y)
+        self.game_map.draw_houses(self.internal_surface, cam_r, cam_c)
 
         # Peeps
-        start_r, end_r, start_c, end_c = self.game_map.get_visible_bounds(cam_x, cam_y)
+        start_r, end_r, start_c, end_c = self.game_map.get_visible_bounds(cam_r, cam_c)
 
         for peep in self.peeps:
             if peep.y < start_r or peep.y >= end_r or peep.x < start_c or peep.x >= end_c:
                 continue
-            peep.draw(self.viewport_surface, cam_x, cam_y)
+            peep.draw(self.internal_surface, cam_r, cam_c)
 
         # Curseur sur le coin le plus proche
         mouse_x, mouse_y = pygame.mouse.get_pos()
@@ -192,24 +167,22 @@ class Game:
             vp_y = mouse_y - self.view_rect.y
             
             grid_r, grid_c = self.game_map.screen_to_nearest_corner(
-                vp_x, vp_y, cam_x, cam_y
+                vp_x, vp_y, cam_r, cam_c
             )
             if 0 <= grid_r <= self.game_map.grid_height and 0 <= grid_c <= self.game_map.grid_width:
                 alt = self.game_map.get_corner_altitude(grid_r, grid_c)
-                px, py = self.game_map.world_to_screen(grid_r, grid_c, alt, cam_x, cam_y)
+                px, py = self.game_map.world_to_screen(grid_r, grid_c, alt, cam_r, cam_c)
                 
                 sprites = Peep.get_sprites()
                 pointer_sprite = sprites.get((8, 11))
                 if pointer_sprite:
-                    sprite_rect = pointer_sprite.get_rect(center=(px + 5, py + TILE_HALF_H - alt * 14 + 4))
-                    self.viewport_surface.blit(pointer_sprite, sprite_rect)
+                    sprite_rect = pointer_sprite.get_rect(center=(px + 5, py + TILE_HALF_H + 4))
+                    self.internal_surface.blit(pointer_sprite, sprite_rect)
                 else:
-                    pygame.draw.circle(self.viewport_surface, RED, (px, py + TILE_HALF_H - alt * 14), 3)
+                    pygame.draw.circle(self.internal_surface, RED, (px, py + TILE_HALF_H), 3)
 
-        # Blit the viewport on screen (over the UI)
-        self.internal_surface.blit(self.viewport_surface, self.view_rect.topleft)
-
-        self.draw_debug_info()
+        if self.show_debug:
+            self.draw_debug_info()
         
         # Scale internal surface to display window size
         scaled_surface = pygame.transform.scale(self.internal_surface, self.screen.get_size())
@@ -222,7 +195,7 @@ class Game:
         mouse_x //= self.display_scale
         mouse_y //= self.display_scale
 
-        cam_x, cam_y = self.camera.offset_x, self.camera.offset_y
+        cam_r, cam_c = self.camera.r, self.camera.c
         
         alt_text = "N/A"
         grid_r, grid_c = -1, -1
@@ -230,7 +203,7 @@ class Game:
             vp_x = mouse_x - self.view_rect.x
             vp_y = mouse_y - self.view_rect.y
             grid_r, grid_c = self.game_map.screen_to_nearest_corner(
-                vp_x, vp_y, cam_x, cam_y
+                vp_x, vp_y, cam_r, cam_c
             )
             alt = self.game_map.get_corner_altitude(grid_r, grid_c)
             if alt != -1:
@@ -241,7 +214,7 @@ class Game:
             f"Scale: x{self.display_scale}",
             f"Mouse: ({mouse_x}, {mouse_y})",
             f"Corner: ({grid_r}, {grid_c}) Alt: {alt_text}",
-            f"Camera: ({int(cam_x)}, {int(cam_y)})",
+            f"Camera R/C: ({cam_r:.2f}, {cam_c:.2f})",
             f"Peeps: {len(self.peeps)}",
             f"Houses: {len(self.game_map.houses)}"
         ]

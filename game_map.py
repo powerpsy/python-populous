@@ -74,18 +74,26 @@ class GameMap:
                 return True
         return False
 
-    def world_to_screen(self, r, c, altitude, cam_x=0, cam_y=0):
-        sx = MAP_OFFSET_X + (c - r) * TILE_HALF_W + cam_x
-        sy = MAP_OFFSET_Y + (c + r) * TILE_HALF_H - altitude * ALTITUDE_PIXEL_STEP + cam_y
+    def world_to_screen(self, r, c, altitude, cam_r=0, cam_c=0):
+        local_r = r - cam_r
+        local_c = c - cam_c
+        sx = MAP_OFFSET_X + (local_c - local_r) * TILE_HALF_W
+        elev = altitude * TILE_HALF_H  # Incrément strict de 8 pixels par niveau
+        sy = MAP_OFFSET_Y + (local_c + local_r) * TILE_HALF_H - elev
         return int(sx), int(sy)
 
-    def screen_to_nearest_corner(self, sx, sy, cam_x=0, cam_y=0):
+    def screen_to_nearest_corner(self, sx, sy, cam_r=0, cam_c=0):
         best_r, best_c = 0, 0
         min_dist = float("inf")
-        for r in range(self.grid_height + 1):
-            for c in range(self.grid_width + 1):
+        start_r = max(0, int(cam_r) - 2)
+        end_r = min(self.grid_height + 1, int(cam_r) + 12)
+        start_c = max(0, int(cam_c) - 2)
+        end_c = min(self.grid_width + 1, int(cam_c) + 12)
+        
+        for r in range(start_r, end_r):
+            for c in range(start_c, end_c):
                 alt = self.get_corner_altitude(r, c)
-                px, py = self.world_to_screen(r, c, alt, cam_x, cam_y)
+                px, py = self.world_to_screen(r, c, alt, cam_r, cam_c)
                 d = (sx - px) ** 2 + (sy - py) ** 2
                 if d < min_dist:
                     min_dist = d
@@ -168,7 +176,7 @@ class GameMap:
 
         return tile_map.get(d, TILE_FLAT)
 
-    def draw_tile(self, surface, r, c, cam_x=0, cam_y=0):
+    def draw_tile(self, surface, r, c, cam_r=0, cam_c=0):
         a0 = self.get_corner_altitude(r, c)
         a1 = self.get_corner_altitude(r, c + 1)
         a2 = self.get_corner_altitude(r + 1, c + 1)
@@ -182,19 +190,16 @@ class GameMap:
 
         # Le point world_to_screen(r, c, alt) donne le coin NW (sommet haut du losange)
         # Le tile doit être positionné pour que le sommet haut du losange soit centré horizontalement
-        sx, sy = self.world_to_screen(r, c, min_alt, cam_x, cam_y)
+        sx, sy = self.world_to_screen(r, c, min_alt, cam_r, cam_c)
         blit_x = sx - TILE_HALF_W
-        if tile_key in (TILE_WATER, TILE_WATER_2):
-            blit_y = sy
-        elif tile_key == TILE_FLAT:
-            blit_y = sy - max(0, min_alt - 1) * 15
+        if tile_key == TILE_FLAT:
+            blit_y = sy + TILE_HALF_H  # Décale de 8 pixels vers le bas pour les tiles plates
         else:
-            blit_y = sy - min_alt * 15
+            blit_y = sy
 
         # Remplir les faces latérales visibles avec des copies empilées de TILE_FLAT
         # gap = distance en pixels entre blit_y et le niveau de sol de référence (alt=0)
-        # sy_0 = sy + min_alt  (car ALTITUDE_PIXEL_STEP = 1)
-        sy0 = sy + min_alt
+        _, sy0 = self.world_to_screen(r, c, 0, cam_r, cam_c)
         gap = sy0 - blit_y
         n_copies = gap // TILE_HALF_H
         if n_copies > 0:
@@ -205,40 +210,40 @@ class GameMap:
 
         surface.blit(tile_surf, (blit_x, blit_y))
 
-    def screen_to_grid(self, sx, sy, cam_x=0, cam_y=0):
+    def screen_to_grid(self, sx, sy, cam_r=0, cam_c=0):
         import settings
-        X = sx - settings.MAP_OFFSET_X - cam_x
-        Y = sy - settings.MAP_OFFSET_Y - cam_y
+        X = sx - settings.MAP_OFFSET_X
+        Y = sy - settings.MAP_OFFSET_Y
         
         U = X / settings.TILE_HALF_W
         V = Y / settings.TILE_HALF_H
         
-        c = (U + V) / 2
-        r = (V - U) / 2
-        return int(r), int(c)
+        local_c = (U + V) / 2
+        local_r = (V - U) / 2
+        return int(local_r + cam_r), int(local_c + cam_c)
 
-    def get_visible_bounds(self, cam_x, cam_y):
-        # On force exactement un centre d'affichage et un carré de 8x8 (rayon de 4)
-        center_r, center_c = self.screen_to_grid(191, 145, cam_x, cam_y)
-        
-        # 8 tuiles = de center-4 à center+4 (qui fera exactemeent 8 itérations)
-        radius = 4
-        
-        start_r = max(0, center_r - radius)
-        end_r = min(self.grid_height, center_r + radius)
-        start_c = max(0, center_c - radius)
-        end_c = min(self.grid_width, center_c + radius)
+    def get_visible_bounds(self, cam_r, cam_c):
+        start_r = int(cam_r)
+        start_c = int(cam_c)
+        end_r = min(self.grid_height, start_r + 8)
+        end_c = min(self.grid_width, start_c + 8)
         return start_r, end_r, start_c, end_c
 
-    def draw(self, surface, cam_x=0, cam_y=0):
-        start_r, end_r, start_c, end_c = self.get_visible_bounds(cam_x, cam_y)
+    def draw(self, surface, cam_r=0, cam_c=0):
+        start_r = int(cam_r)
+        start_c = int(cam_c)
+        end_r = min(self.grid_height, start_r + 8)
+        end_c = min(self.grid_width, start_c + 8)
 
         for r in range(start_r, end_r):
             for c in range(start_c, end_c):
-                self.draw_tile(surface, r, c, cam_x, cam_y)
+                self.draw_tile(surface, r, c, cam_r, cam_c)
 
-    def draw_houses(self, surface, cam_x=0, cam_y=0):
-        start_r, end_r, start_c, end_c = self.get_visible_bounds(cam_x, cam_y)
+    def draw_houses(self, surface, cam_r=0, cam_c=0):
+        start_r = int(cam_r)
+        start_c = int(cam_c)
+        end_r = min(self.grid_height, start_r + 8)
+        end_c = min(self.grid_width, start_c + 8)
 
         from peep import Peep
         peep_sprites = Peep.get_sprites()
@@ -253,10 +258,10 @@ class GameMap:
             tile_surf = self.tile_surfaces.get(tile_key)
             if tile_surf is None:
                 continue
-            sx, sy = self.world_to_screen(house.r, house.c, alt, cam_x, cam_y)
+            sx, sy = self.world_to_screen(house.r, house.c, alt, cam_r, cam_c)
             blit_x = sx - TILE_HALF_W
-            # Même offset d'altitude que draw_tile pour TILE_FLAT
-            blit_y = sy - max(0, alt - 1) * 15 - TILE_HALF_H
+            # Le haut du tile est à blit_y
+            blit_y = sy - TILE_HALF_H
             surface.blit(tile_surf, (blit_x, blit_y))
 
             # Drapeau d'équipe animé (sprites 4,0 et 4,1)
