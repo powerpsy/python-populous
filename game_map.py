@@ -94,7 +94,14 @@ class GameMap:
             for c in range(start_c, end_c):
                 alt = self.get_corner_altitude(r, c)
                 px, py = self.world_to_screen(r, c, alt, cam_r, cam_c)
-                d = (sx - px) ** 2 + (sy - py) ** 2
+                
+                # Le centre de gravité visuel de l'intersection de la grille isométrique
+                # est décalé vers le bas de TILE_HALF_H (8 pixels) par rapport au top
+                target_y = py + TILE_HALF_H
+                
+                # Prendre en compte le ratio isométrique (2:1) pour la forme de la zone de clic
+                d = (sx - px) ** 2 + ((sy - target_y) * 2) ** 2
+                
                 if d < min_dist:
                     min_dist = d
                     best_r, best_c = r, c
@@ -174,7 +181,12 @@ class GameMap:
         else:
             tile_map = SLOPE_TILES
 
-        return tile_map.get(d, TILE_FLAT)
+        tile = tile_map.get(d, TILE_FLAT)
+        if tile == TILE_FLAT:
+            for h in self.houses:
+                if (r, c) in getattr(h, 'occupied_tiles', []):
+                    return TILE_CONSTRUCTED
+        return tile
 
     def draw_tile(self, surface, r, c, cam_r=0, cam_c=0):
         a0 = self.get_corner_altitude(r, c)
@@ -192,7 +204,7 @@ class GameMap:
         # Le tile doit être positionné pour que le sommet haut du losange soit centré horizontalement
         sx, sy = self.world_to_screen(r, c, min_alt, cam_r, cam_c)
         blit_x = sx - TILE_HALF_W
-        if tile_key == TILE_FLAT:
+        if tile_key == TILE_FLAT or tile_key == TILE_CONSTRUCTED:
             blit_y = sy + TILE_HALF_H  # Décale de 8 pixels vers le bas pour les tiles plates
         else:
             blit_y = sy
@@ -239,6 +251,35 @@ class GameMap:
             for c in range(start_c, end_c):
                 self.draw_tile(surface, r, c, cam_r, cam_c)
 
+    def get_flat_area_score(self, r, c, current_house=None):
+        # Retourne la liste des tuiles planes adjacentes à (r, c) valides pour la construction
+        a = self.get_corner_altitude(r, c)
+        b = self.get_corner_altitude(r, c + 1)
+        c_ = self.get_corner_altitude(r + 1, c + 1)
+        d = self.get_corner_altitude(r + 1, c)
+
+        if not (a == b == c_ == d and a > 0):
+            return -1, []  # La tuile centrale n'est plus plane
+            
+        base_alt = a
+        valid_tiles = []
+
+        # Pour le tri par distance
+        offsets = [(dr, dc) for dr in range(-2, 3) for dc in range(-2, 3) if not (dr == 0 and dc == 0)]
+        offsets.sort(key=lambda p: p[0]**2 + p[1]**2)
+
+        for dr, dc in offsets:
+            nr, nc = r + dr, c + dc
+            if 0 <= nr < self.grid_height and 0 <= nc < self.grid_width:
+                na = self.get_corner_altitude(nr, nc)
+                nb = self.get_corner_altitude(nr, nc + 1)
+                nc_ = self.get_corner_altitude(nr + 1, nc + 1)
+                nd = self.get_corner_altitude(nr + 1, nc)
+                if na == nb == nc_ == nd == base_alt:
+                    valid_tiles.append((nr, nc))
+                    
+        return len(valid_tiles), valid_tiles
+
     def draw_houses(self, surface, cam_r=0, cam_c=0):
         start_r = int(cam_r)
         start_c = int(cam_c)
@@ -261,7 +302,7 @@ class GameMap:
             sx, sy = self.world_to_screen(house.r, house.c, alt, cam_r, cam_c)
             blit_x = sx - TILE_HALF_W
             # Le haut du tile est à blit_y
-            blit_y = sy - TILE_HALF_H
+            blit_y = sy
             surface.blit(tile_surf, (blit_x, blit_y))
 
             # Drapeau d'équipe animé (sprites 4,0 et 4,1)
@@ -315,7 +356,11 @@ class GameMap:
         c_ = self.get_corner_altitude(r + 1, c + 1)
         d = self.get_corner_altitude(r + 1, c)
         if a == b == c_ == d and a > 0:
-            return not any(h.r == r and h.c == c for h in self.houses)
+            # Vérifier qu'aucune maison ne réclame déjà cette tuile
+            for h in self.houses:
+                if (r, c) in getattr(h, 'occupied_tiles', []):
+                    return False
+            return True
         return False
 
     def add_house(self, house):

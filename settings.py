@@ -71,6 +71,7 @@ SLOPE_TILES = {
 TILE_WATER = (0, 0)
 TILE_WATER_2 = (1, 7)       # 2e frame d'animation de l'eau
 TILE_FLAT = (1, 6)
+TILE_CONSTRUCTED = (3, 4)
 
 # Tiles pentes pour altitude basse (= 1, juste au-dessus de l'eau)
 # Même ordre de deltas que SLOPE_TILES, de (1,8) à (3,3)
@@ -101,6 +102,7 @@ BUILDING_TILES = {
     'castle_large': (4, 2),
     'fortress_small': (4, 3),
     'fortress_medium': (4, 4),
+    'fortress_large': (4, 5),
 }
 
 # === Château 3x3 (tiles (4,5) à (4,8)) ===

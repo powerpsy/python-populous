@@ -201,8 +201,8 @@ class Peep:
             alt = 0
 
         sx, sy = self.game_map.world_to_screen(self.y, self.x, alt, cam_x, cam_y)
-        # Sol visuel : même formule que le curseur rouge
-        ground_y = sy + TILE_HALF_H - int(alt * 13)
+        # Sol visuel : la coordonnée sy intègre déjà l'altitude (alt * 8)
+        ground_y = sy + TILE_HALF_H
 
         sprites = self.get_sprites()
         frames = WALK_FRAMES.get(self.facing, WALK_FRAMES['IDLE'])

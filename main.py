@@ -60,6 +60,16 @@ class Game:
         self.peeps = []
         self.running = True
         self.show_debug = True
+        self.show_scanlines = False
+        self.scanline_surface = None
+        self._update_scanline_surface()
+
+    def _update_scanline_surface(self):
+        w, h = self.screen.get_size()
+        self.scanline_surface = pygame.Surface((w, h), pygame.SRCALPHA)
+        self.scanline_surface.fill((0, 0, 0, 0))
+        for y in range(0, h, max(1, self.display_scale)):
+            pygame.draw.line(self.scanline_surface, (0, 0, 0, 100), (0, y), (w, y), 1)
 
     def spawn_initial_peeps(self, count):
         for _ in range(count):
@@ -87,6 +97,7 @@ class Game:
                 elif event.key == pygame.K_TAB:
                     self.display_scale = (self.display_scale % 4) + 1
                     self.screen = pygame.display.set_mode((self.base_size[0] * self.display_scale, self.base_size[1] * self.display_scale))
+                    self._update_scanline_surface()
                 elif event.key == pygame.K_F1:
                     self.peeps.clear()
                 elif event.key == pygame.K_F2:
@@ -98,6 +109,8 @@ class Game:
                     self.spawn_initial_peeps(10)
                 elif event.key == pygame.K_F4:
                     self.game_map.set_all_altitude(1)
+                elif event.key == pygame.K_F12:
+                    self.show_scanlines = not self.show_scanlines
                 elif event.unicode == '§':
                     self.show_debug = not self.show_debug
             elif event.type == pygame.MOUSEBUTTONDOWN:
@@ -113,10 +126,14 @@ class Game:
                     r, c = self.game_map.screen_to_nearest_corner(
                         vp_x, vp_y, self.camera.r, self.camera.c
                     )
-                    if event.button == 1:
-                        self.game_map.raise_corner(r, c)
-                    elif event.button == 3:
-                        self.game_map.lower_corner(r, c)
+                    
+                    # On vérifie qu'on clique bien sur la zone 8x8 visible de la caméra
+                    start_r, end_r, start_c, end_c = self.game_map.get_visible_bounds(self.camera.r, self.camera.c)
+                    if start_r <= r <= end_r and start_c <= c <= end_c:
+                        if event.button == 1:
+                            self.game_map.raise_corner(r, c)
+                        elif event.button == 3:
+                            self.game_map.lower_corner(r, c)
 
     def update(self, dt):
         self.camera.update(dt)
@@ -130,11 +147,20 @@ class Game:
 
         # Maisons : update et spawn de peeps
         new_peeps = []
+        houses_to_keep = []
         for house in self.game_map.houses:
-            house.update(dt)
-            if house.can_spawn_peep():
+            house.update(dt, self.game_map)
+            if getattr(house, 'destroyed', False):
+                # Le terrain n'est plus plat, on détruit la maison et récupère un peep
                 new_peep = Peep(house.r, house.c, self.game_map)
+                new_peep.life = house.life
                 new_peeps.append(new_peep)
+            else:
+                houses_to_keep.append(house)
+                if house.can_spawn_peep():
+                    new_peep = Peep(house.r, house.c, self.game_map)
+                    new_peeps.append(new_peep)
+        self.game_map.houses = houses_to_keep
         self.peeps.extend(new_peeps)
 
     def draw(self):
@@ -169,7 +195,9 @@ class Game:
             grid_r, grid_c = self.game_map.screen_to_nearest_corner(
                 vp_x, vp_y, cam_r, cam_c
             )
-            if 0 <= grid_r <= self.game_map.grid_height and 0 <= grid_c <= self.game_map.grid_width:
+            
+            # Afficher le pointeur uniquement s'il est dans la zone visible 8x8 de la caméra
+            if start_r <= grid_r <= end_r and start_c <= grid_c <= end_c:
                 alt = self.game_map.get_corner_altitude(grid_r, grid_c)
                 px, py = self.game_map.world_to_screen(grid_r, grid_c, alt, cam_r, cam_c)
                 
@@ -187,6 +215,9 @@ class Game:
         # Scale internal surface to display window size
         scaled_surface = pygame.transform.scale(self.internal_surface, self.screen.get_size())
         self.screen.blit(scaled_surface, (0, 0))
+        
+        if self.show_scanlines and self.scanline_surface:
+            self.screen.blit(self.scanline_surface, (0, 0))
         
         pygame.display.flip()
 
