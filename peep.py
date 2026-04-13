@@ -93,6 +93,7 @@ class Peep:
         self.is_moving = False
         self.energy_yellow = 0   # barres jaunes restantes
         self.energy_orange = 1.0  # fraction de la barre orange courante (0→1)
+        self.in_house = False
 
     def update(self, dt):
         if self.dead:
@@ -177,12 +178,14 @@ class Peep:
     def try_build_house(self):
         if self.build_timer < 5.0:
             return
-        self.build_timer = 0.0
+        
         gr, gc = int(self.y), int(self.x)
         if self.game_map.is_flat_and_buildable(gr, gc):
+            self.build_timer = 0.0
             from house import House
             house = House(gr, gc)
             self.game_map.add_house(house)
+            self.in_house = True
 
     def draw(self, surface, cam_x=0, cam_y=0):
         gr, gc = int(self.y), int(self.x)
@@ -241,4 +244,6 @@ class Peep:
             pygame.draw.circle(surface, (255, 220, 120), (sx, ground_y), 3)
 
     def is_removable(self):
+        if self.in_house:
+            return True
         return self.dead and self.death_timer > 3.0

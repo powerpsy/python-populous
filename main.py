@@ -6,6 +6,7 @@ from game_map import GameMap
 from peep import Peep
 from house import House
 from camera import Camera
+from minimap import Minimap
 
 
 class Game:
@@ -57,9 +58,10 @@ class Game:
         self.camera = Camera()
         self.game_map = GameMap(GRID_WIDTH, GRID_HEIGHT)
         self.game_map.randomize()
+        self.minimap = Minimap(0, 0) # Position de la minimap
         self.peeps = []
         self.running = True
-        self.show_debug = True
+        self.show_debug = False
         self.show_scanlines = False
         self.scanline_surface = None
         self._update_scanline_surface()
@@ -118,6 +120,10 @@ class Game:
                 mx //= self.display_scale
                 my //= self.display_scale
                 
+                # Check interaction minimap (si clic dessus, on ne fait pas d'autre action)
+                if event.button == 1 and self.minimap.handle_click(mx, my, self.camera):
+                    continue
+
                 # Clics souris (on permet partout puisque le viewport est plein écran)
                 if self.view_rect.collidepoint(mx, my):
                     vp_x = mx - self.view_rect.x
@@ -208,6 +214,8 @@ class Game:
                     self.internal_surface.blit(pointer_sprite, sprite_rect)
                 else:
                     pygame.draw.circle(self.internal_surface, RED, (px, py + TILE_HALF_H), 3)
+
+        self.minimap.draw(self.internal_surface, self.game_map, self.camera, self.peeps)
 
         if self.show_debug:
             self.draw_debug_info()

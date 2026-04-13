@@ -4,16 +4,15 @@ TODO ---------------------------------------------------------------------------
 07. Peep behavior case: build
 08. Peep behavior case: gather
 09. Peep behavior case: fight
-10. Place a magnet case
+10. Place a papal magnet case
 11. Powers case
-12. Create a minimap
 22. Add sound to actions/powers/combat
 23. Create enemies
 24. Add a home page and game mode/password selection
 25. Add a gameover page
 26. Create battles
 27. Add the ? option Display "shield" for information
-28.
+28. implement peeps moving system "_"move_peeps  _move_explorer _where_do_i_go"
 
 DONE ----------------------------------------------------------------------------------------------
 
@@ -31,3 +30,5 @@ DONE ---------------------------------------------------------------------------
 02. Manage buildings 1: Demolish a building if the terrain is not flat.
 04. Manage buildings 4: Each building has a population growth rate. A list of population output frequencies and energy growth rates is required.
 16. Manage buildings 2: Evaluate if there is sufficient space for a building.
+29. Create a minimap
+30. Relocate screen using minimap 

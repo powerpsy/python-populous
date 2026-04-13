@@ -22,6 +22,33 @@ class House:
             self.destroyed = True
             return
 
+        # Vérifier d'abord s'il y a un conflit sur la case centrale
+        center_conflict = False
+        for other in game_map.houses:
+            if other != self and not getattr(other, 'destroyed', False):
+                if (self.r, self.c) in getattr(other, 'occupied_tiles', []):
+                    center_conflict = True
+                    break
+        
+        if center_conflict:
+            self.destroyed = True
+            return
+
+        # Filtrer les valid_tiles pour ignorer les cases revendiquées par n'importe quel voisin
+        filtered_valid_tiles = []
+        for t in valid_tiles:
+            can_claim = True
+            for other in game_map.houses:
+                if other != self and not getattr(other, 'destroyed', False):
+                    if t in getattr(other, 'occupied_tiles', []):
+                        can_claim = False
+                        break
+            if can_claim:
+                filtered_valid_tiles.append(t)
+
+        valid_tiles = filtered_valid_tiles
+        score = len(valid_tiles)
+
         # Nouveaux paliers de score sur les 24 cases adjacentes :
         # bat 1: 0, 2: 1-3, 3: 4-6, 4: 7-9, 5: 10-12, 6: 13-16, 7: 17-19, 8: 20-23, 9: 24
         thresholds = [0, 1, 4, 7, 10, 13, 17, 20, 24]
@@ -59,19 +86,6 @@ class House:
         # Territoire réclamé correspond au niveau ACTUEL (current_tier) du bâtiment
         required_tiles = thresholds[current_tier]
         desired_tiles = [(self.r, self.c)] + valid_tiles[:required_tiles]
-
-        # RECHERCHE DE CONFLIT D'URBANISME : Les bâtiments se disputent le territoire.
-        # Si une autre maison revendique une case qu'on souhaite aussi prendre...
-        for other in game_map.houses:
-            if other != self and not getattr(other, 'destroyed', False):
-                other_occupied = getattr(other, 'occupied_tiles', [])
-                if any(t in desired_tiles for t in other_occupied):
-                    # CONFLIT ! Le plus faible ou nouveau est détruit.
-                    if self.life <= other.life:
-                        self.destroyed = True
-                        return
-                    else:
-                        other.destroyed = True
 
         self.occupied_tiles = desired_tiles
 

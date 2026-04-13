@@ -14,8 +14,8 @@ GRAY = (128, 128, 128)
 BROWN = (139, 69, 19)
 
 # === Grille ===
-GRID_WIDTH = 40
-GRID_HEIGHT = 40
+GRID_WIDTH = 64
+GRID_HEIGHT = 64
 
 # === Altitude ===
 ALTITUDE_MIN = 0
