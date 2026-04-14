@@ -48,8 +48,8 @@ class PositioningTest:
         # On choisit un point d'ancrage
         h_r, h_c = 4, 4
 
-        # Nouveaux paliers de score sur les 24 cases adjacentes
-        thresholds = [0, 1, 4, 7, 10, 13, 17, 20, 24]
+        # Paliers de score sur les 24 cases adjacentes
+        thresholds = [0, 1, 2, 5, 8, 11, 14, 19, 22, 24]
         required_score = thresholds[self.selected_idx]
         
         # La plateforme centrale (bâtiment) est toujours construite
@@ -148,7 +148,7 @@ class PositioningTest:
                 self.screen.blit(text, (rect.x + 5, rect.y + 5))
 
             # Instructions complémentaires
-            thresholds = [0, 1, 4, 7, 10, 13, 17, 20, 24]
+            thresholds = [0, 1, 2, 5, 8, 11, 14, 19, 22, 24]
             required_score = thresholds[self.selected_idx]
             info_text1 = self.font.render(f"Maison à (4, 4) - Alt 2 (score terrain: {required_score}/24)", True, WHITE)
             info_text2 = self.font.render(f"Peep à (4.5, 4.5)   ", True, WHITE)

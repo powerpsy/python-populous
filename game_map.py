@@ -294,6 +294,27 @@ class GameMap:
             if house.r < start_r or house.r >= end_r or house.c < start_c or house.c >= end_c:
                 continue
                 
+            if house.building_type == 'castle':
+                from settings import CASTLE_9_TILES
+                offsets = [
+                    (-1, -1, CASTLE_9_TILES['corner']),     (-1, 0, CASTLE_9_TILES['side_tb']),     (-1, 1, CASTLE_9_TILES['corner']),
+                    (0, -1, CASTLE_9_TILES['side_lr']),     (0, 0, CASTLE_9_TILES['center']),       (0, 1, CASTLE_9_TILES['side_lr']),
+                    (1, -1, CASTLE_9_TILES['corner']),      (1, 0, CASTLE_9_TILES['side_tb']),      (1, 1, CASTLE_9_TILES['corner'])
+                ]
+                offsets.sort(key=lambda x: (house.r + x[0]) + (house.c + x[1]))
+                for dr, dc, tile_key in offsets:
+                    nr, nc = house.r + dr, house.c + dc
+                    if 0 <= nr < self.grid_height and 0 <= nc < self.grid_width:
+                        alt = self.get_corner_altitude(nr, nc)
+                        tile_surf = self.tile_surfaces.get(tile_key)
+                        if tile_surf is not None:
+                            sx, sy = self.world_to_screen(nr, nc, alt, cam_r, cam_c)
+                            surface.blit(tile_surf, (sx - TILE_HALF_W, sy))
+                if flag_surf is not None:
+                    sx, sy = self.world_to_screen(house.r, house.c, self.get_corner_altitude(house.r, house.c), cam_r, cam_c)
+                    surface.blit(flag_surf, (sx, sy))
+                continue
+
             alt = self.get_corner_altitude(house.r, house.c)
             tile_key = BUILDING_TILES.get(house.building_type, BUILDING_TILES["hut"])
             tile_surf = self.tile_surfaces.get(tile_key)
@@ -362,6 +383,40 @@ class GameMap:
                     return False
             return True
         return False
+
+    def _get_construction_offsets(self, scan_size=25):
+        """Offsets de voisinage discrets autour du centre, triés du plus proche au plus lointain."""
+        offsets = [
+            (dr, dc)
+            for dr in range(-2, 3)
+            for dc in range(-2, 3)
+            if not (dr == 0 and dc == 0)
+        ]
+        offsets.sort(key=lambda p: p[0] * p[0] + p[1] * p[1])
+        return offsets[: max(0, min(scan_size, len(offsets)))]
+
+    def can_place_house_initial(self, r, c):
+        """Validation de pose initiale: centre plat + buffer de voisinage anti-proximité."""
+        if not self.is_flat_and_buildable(r, c):
+            return False
+
+        # Phase initiale proche du comportement original: scan large (25 positions max).
+        for dr, dc in self._get_construction_offsets(25):
+            nr, nc = r + dr, c + dc
+            if not (0 <= nr < self.grid_height and 0 <= nc < self.grid_width):
+                continue
+
+            # Interdit de construire si le voisinage immédiat contient déjà un centre de ville.
+            for h in self.houses:
+                if (h.r, h.c) == (nr, nc):
+                    return False
+
+            # Interdit aussi si la case est déjà revendiquée par une ville existante.
+            for h in self.houses:
+                if (nr, nc) in getattr(h, 'occupied_tiles', []):
+                    return False
+
+        return True
 
     def add_house(self, house):
         self.houses.append(house)

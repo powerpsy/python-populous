@@ -180,7 +180,7 @@ class Peep:
             return
         
         gr, gc = int(self.y), int(self.x)
-        if self.game_map.is_flat_and_buildable(gr, gc):
+        if self.game_map.can_place_house_initial(gr, gc):
             self.build_timer = 0.0
             from house import House
             house = House(gr, gc)

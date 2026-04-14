@@ -1,5 +1,6 @@
 TODO ----------------------------------------------------------------------------------------------
 
+31. take into account multi key (map scrolling in 8 directions possible)
 03. Manage buildings 3: Setting up the castle
 07. Peep behavior case: build
 08. Peep behavior case: gather

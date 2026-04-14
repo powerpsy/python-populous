@@ -2,7 +2,7 @@ class House:
     # Types de bâtiments par ordre de puissance
     TYPES = ['hut', 'house_small', 'house_medium', 'castle_small',
              'castle_medium', 'castle_large', 'fortress_small',
-             'fortress_medium', 'fortress_large']
+             'fortress_medium', 'fortress_large', 'castle']
 
     def __init__(self, r, c, life=10):
         self.r = r
@@ -49,9 +49,8 @@ class House:
         valid_tiles = filtered_valid_tiles
         score = len(valid_tiles)
 
-        # Nouveaux paliers de score sur les 24 cases adjacentes :
-        # bat 1: 0, 2: 1-3, 3: 4-6, 4: 7-9, 5: 10-12, 6: 13-16, 7: 17-19, 8: 20-23, 9: 24
-        thresholds = [0, 1, 4, 7, 10, 13, 17, 20, 24]
+        # Paliers de score sur les 24 cases adjacentes
+        thresholds = [0, 1, 2, 5, 8, 11, 14, 19, 22, 24]
         
         max_tier = 0
         for i, thresh in enumerate(thresholds):
