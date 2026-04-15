@@ -177,7 +177,7 @@ class Peep:
 
     def try_build_house(self):
         if self.build_timer < 5.0:
-            return
+            return None
         
         gr, gc = int(self.y), int(self.x)
         if self.game_map.can_place_house_initial(gr, gc):
@@ -186,6 +186,8 @@ class Peep:
             house = House(gr, gc)
             self.game_map.add_house(house)
             self.in_house = True
+            return house
+        return None
 
     def draw(self, surface, cam_x=0, cam_y=0):
         gr, gc = int(self.y), int(self.x)
@@ -225,20 +227,6 @@ class Peep:
                 surface.blit(tinted, (blit_x, blit_y))
             else:
                 surface.blit(sprite, (blit_x, blit_y))
-
-            # Barres d'énergie au-dessus du sprite (uniquement si vivant)
-            if not self.dead:
-                bar_w = sw
-                bar_x = blit_x
-                bar_y = blit_y - 6  # 2px jaune + 1px gap + 2px orange
-                # Fond sombre + barre jaune
-                yellow_w = int(bar_w * self.energy_yellow / 5)
-                pygame.draw.rect(surface, (80, 80, 0), (bar_x, bar_y, bar_w, 2))
-                pygame.draw.rect(surface, (255, 220, 0), (bar_x, bar_y, yellow_w, 2))
-                # Fond sombre + barre orange
-                orange_w = int(bar_w * self.energy_orange)
-                pygame.draw.rect(surface, (80, 40, 0), (bar_x, bar_y + 3, bar_w, 2))
-                pygame.draw.rect(surface, (255, 140, 0), (bar_x, bar_y + 3, orange_w, 2))
         else:
             # Fallback : petit cercle
             pygame.draw.circle(surface, (255, 220, 120), (sx, ground_y), 3)

@@ -8,7 +8,6 @@ from house import House
 from camera import Camera
 from minimap import Minimap
 
-
 class Game:
     def __init__(self):
         pygame.init()
@@ -63,8 +62,239 @@ class Game:
         self.running = True
         self.show_debug = False
         self.show_scanlines = False
+        self.view_who = None
+        self.view_type = None
         self.scanline_surface = None
         self._update_scanline_surface()
+
+    def _get_peep_sprite_rect(self, peep, cam_r, cam_c):
+        gr, gc = int(peep.y), int(peep.x)
+        fx = peep.x - gc
+        fy = peep.y - gr
+        if 0 <= gr < self.game_map.grid_height and 0 <= gc < self.game_map.grid_width:
+            a_nw = self.game_map.get_corner_altitude(gr, gc)
+            a_ne = self.game_map.get_corner_altitude(gr, gc + 1)
+            a_sw = self.game_map.get_corner_altitude(gr + 1, gc)
+            a_se = self.game_map.get_corner_altitude(gr + 1, gc + 1)
+            alt = (1 - fx) * (1 - fy) * a_nw + fx * (1 - fy) * a_ne + (1 - fx) * fy * a_sw + fx * fy * a_se
+        else:
+            alt = 0
+
+        sx, sy = self.game_map.world_to_screen(peep.y, peep.x, alt, cam_r, cam_c)
+        ground_y = sy + TILE_HALF_H
+        sprites = Peep.get_sprites()
+        frames = {
+            'N': [(0, 0), (0, 1)],
+            'NE': [(0, 2), (0, 3)],
+            'E': [(0, 4), (0, 5)],
+            'SE': [(0, 6), (0, 7)],
+            'S': [(0, 8), (0, 9)],
+            'SW': [(0, 10), (0, 11)],
+            'W': [(0, 12), (0, 13)],
+            'NW': [(0, 14), (0, 15)],
+            'IDLE': [(0, 8), (0, 9)],
+            'DROWN': [(5, 8), (5, 9), (5, 10), (5, 11)],
+        }
+        anim = frames.get(peep.facing, frames['IDLE'])
+        key = anim[peep.anim_frame % len(anim)]
+        sprite = sprites.get(key)
+        if sprite is None:
+            return pygame.Rect(sx - 4, ground_y - 8, 8, 8)
+        sw, sh = sprite.get_size()
+        return pygame.Rect(sx - sw // 2, ground_y - sh, sw, sh)
+
+    def _get_house_sprite_rect(self, house, cam_r, cam_c):
+        if house.building_type == 'castle':
+            alt = self.game_map.get_corner_altitude(house.r, house.c)
+            sx, sy = self.game_map.world_to_screen(house.r, house.c, alt, cam_r, cam_c)
+            return pygame.Rect(sx - TILE_WIDTH, sy - TILE_HEIGHT, TILE_WIDTH * 2, TILE_HEIGHT * 2)
+
+        alt = self.game_map.get_corner_altitude(house.r, house.c)
+        sx, sy = self.game_map.world_to_screen(house.r, house.c, alt, cam_r, cam_c)
+        tile_key = BUILDING_TILES.get(house.building_type, BUILDING_TILES['hut'])
+        tile_surf = self.game_map.tile_surfaces.get(tile_key)
+        if tile_surf is None:
+            return pygame.Rect(sx - TILE_HALF_W, sy, TILE_WIDTH, TILE_HEIGHT)
+        tw, th = tile_surf.get_size()
+        return pygame.Rect(sx - TILE_HALF_W, sy, tw, th)
+
+    def _select_view_target(self, mx, my):
+        cam_r, cam_c = self.camera.r, self.camera.c
+        best_target = None
+        best_type = None
+        best_dist = float('inf')
+
+        for house in self.game_map.houses:
+            if getattr(house, 'destroyed', False):
+                continue
+            rect = self._get_house_sprite_rect(house, cam_r, cam_c)
+            if rect.collidepoint(mx, my):
+                dx = mx - rect.centerx
+                dy = my - rect.centery
+                d2 = dx * dx + dy * dy
+                if d2 < best_dist:
+                    best_dist = d2
+                    best_target = house
+                    best_type = 'house'
+
+        for peep in self.peeps:
+            if peep.dead:
+                continue
+            rect = self._get_peep_sprite_rect(peep, cam_r, cam_c)
+            if rect.collidepoint(mx, my):
+                dx = mx - rect.centerx
+                dy = my - rect.centery
+                d2 = dx * dx + dy * dy
+                if d2 < best_dist:
+                    best_dist = d2
+                    best_target = peep
+                    best_type = 'peep'
+
+        if best_target is not None:
+            self.view_who = best_target
+            self.view_type = best_type
+            return True
+        return False
+
+    def _get_weapon_name(self, target, target_type):
+        if target_type == 'house':
+            by_type = {
+                'hut': 'Aucune',
+                'house_small': 'Aucune',
+                'house_medium': 'Aucune',
+                'castle_small': 'Garnison I',
+                'castle_medium': 'Garnison II',
+                'castle_large': 'Garnison III',
+                'fortress_small': 'Garnison IV',
+                'fortress_medium': 'Garnison V',
+                'fortress_large': 'Garnison VI',
+                'castle': 'Garnison VII',
+            }
+            return by_type.get(target.building_type, 'Aucune')
+
+        life = float(getattr(target, 'life', 0.0))
+        if life < 20:
+            return 'Mains nues'
+        if life < 40:
+            return 'Baton'
+        if life < 70:
+            return 'Epee courte'
+        if life < 100:
+            return 'Epee'
+        return 'Arc'
+
+    def _draw_shield_marker(self, surface, target, target_type, cam_r, cam_c):
+        sprites = Peep.get_sprites()
+        shield_sprite = sprites.get((8, 8))
+        if shield_sprite is None:
+            return
+
+        if target_type == 'peep':
+            rect = self._get_peep_sprite_rect(target, cam_r, cam_c)
+            # Sur le peep comme s'il le tenait (légèrement décalé)
+            x = rect.centerx -1
+            y = rect.centery - shield_sprite.get_height() // 2 + 2
+            surface.blit(shield_sprite, (x, y))
+            return
+
+        rect = self._get_house_sprite_rect(target, cam_r, cam_c)
+        # Décalage demandé : 32px à droite, 11px en bas
+        x = rect.centerx - shield_sprite.get_width() // 2 + 11
+        y = rect.top - shield_sprite.get_height() - 2 + 23
+        surface.blit(shield_sprite, (x, y))
+
+    def _draw_shield_panel(self, surface):
+        if self.view_who is None or self.view_type is None:
+            return
+
+        sprites = Peep.get_sprites()
+
+        # Coordonnées déduites des 4 parties du blason (en haut à droite, UI commence à x=256)
+        blason_tl = (271, 4)   # Top-Left (Colonie) : décalé de 5px droite, 7px haut
+        blason_tr = (287, 2)   # Top-Right (Arme) : décalé de 5px gauche, 7px haut
+        blason_bl = (271, 23)  # Bottom-Left (Sprite/Animation) : inchangé
+        blason_br = (287, 19)  # Bottom-Right (Energie) : décalé 3px gauche, 7px haut
+
+        # 1. Colonie bleue (4,8) ou rouge (4,9) -> pour l'instant prenons la bleue
+        colony_sprite = sprites.get((4, 8))
+        if self.view_type == 'peep' and getattr(self.view_who, 'is_enemy', False):
+            colony_sprite = sprites.get((4, 9))
+        if colony_sprite:
+            surface.blit(colony_sprite, blason_tl)
+
+        # 2. Arme représentée par une lettre
+        weapon = self._get_weapon_name(self.view_who, self.view_type)
+        weapon_letter = 'N' # None
+        if weapon != 'Aucune':
+            weapon_letter = weapon[0].upper()
+        w_text = self.font.render(weapon_letter, True, (240, 240, 240))
+        surface.blit(w_text, (blason_tr[0] + 6, blason_tr[1] + 2))
+
+        # 3. Sprite du peep animé, ou drapeau animé pour un bâtiment
+        show_flag = (self.view_type == 'house')
+        # Si c'était un peep en cours de construction (in_house = True ou similaire), on montre aussi le drapeau
+        if self.view_type == 'peep' and getattr(self.view_who, 'in_house', False):
+            show_flag = True
+
+        if not show_flag:
+            frames = {
+                'N': [(0, 0), (0, 1)],
+                'NE': [(0, 2), (0, 3)],
+                'E': [(0, 4), (0, 5)],
+                'SE': [(0, 6), (0, 7)],
+                'S': [(0, 8), (0, 9)],
+                'SW': [(0, 10), (0, 11)],
+                'W': [(0, 12), (0, 13)],
+                'NW': [(0, 14), (0, 15)],
+                'IDLE': [(0, 8), (0, 9)],
+                'DROWN': [(5, 8), (5, 9), (5, 10), (5, 11)],
+            }
+            facing = getattr(self.view_who, 'facing', 'IDLE')
+            anim = frames.get(facing, frames['IDLE'])
+            frame_idx = getattr(self.view_who, 'anim_frame', 0) % len(anim)
+            peep_idx = anim[frame_idx]
+            peep_sprite = sprites.get(peep_idx)
+            if peep_sprite:
+                # On centre dans le quart bas-gauche
+                surface.blit(peep_sprite, blason_bl)
+        else:
+            # Bâtiment ou peep en construction : drapeau animé (4,0 et 4,1)
+            frame_idx = int(pygame.time.get_ticks() / 200) % 2
+            flag_sprite = sprites.get((4, frame_idx))
+            if flag_sprite:
+                # Décaler le drapeau de 3px vers la gauche pour les bâtiments
+                blason_flag = (blason_bl[0] - 3, blason_bl[1])
+                surface.blit(flag_sprite, blason_flag)
+
+        # 4. Énergie sous forme de 2 rectangles verticaux
+        life = float(getattr(self.view_who, 'life', 0.0))
+        
+        # Barre de gauche (les centaines de vies en jaune)
+        hundreds = int(life // 100)
+        # Limite visuelle des centaines à 10 pour ne pas déborder (0 à 10)
+        max_hundreds = 10.0
+        ratio_yellow = min(1.0, max(0.0, hundreds / max_hundreds))
+        
+        # Barre de droite (les unités de vies en orange)
+        units = life % 100
+        ratio_orange = min(1.0, max(0.0, units / 99.0))
+
+        bar_w = 4
+        bar_max_h = 16
+        
+        # 1er rectangle : jaune (centaines)
+        bar1_h = int(bar_max_h * ratio_yellow)
+        rect1_x = blason_br[0] + 4
+        bar1_y = blason_br[1] + 2 + (bar_max_h - bar1_h)
+        if bar1_h > 0:
+            pygame.draw.rect(surface, (255, 220, 0), (rect1_x, bar1_y, bar_w, bar1_h))
+
+        # 2ème rectangle : orange (unités)
+        bar2_h = int(bar_max_h * ratio_orange)
+        rect2_x = blason_br[0] + 12
+        bar2_y = blason_br[1] + 2 + (bar_max_h - bar2_h)
+        if bar2_h > 0:
+            pygame.draw.rect(surface, (255, 140, 0), (rect2_x, bar2_y, bar_w, bar2_h))
 
     def _update_scanline_surface(self):
         w, h = self.screen.get_size()
@@ -124,6 +354,10 @@ class Game:
                 if event.button == 1 and self.minimap.handle_click(mx, my, self.camera):
                     continue
 
+                # Clic droit sur entité: active le shield (peep ou bâtiment)
+                if event.button == 3 and self._select_view_target(mx, my):
+                    continue
+
                 # Clics souris (on permet partout puisque le viewport est plein écran)
                 if self.view_rect.collidepoint(mx, my):
                     vp_x = mx - self.view_rect.x
@@ -147,7 +381,10 @@ class Game:
         for peep in self.peeps:
             peep.update(dt)
             if not peep.dead:
-                peep.try_build_house()
+                new_house = peep.try_build_house()
+                if new_house is not None and self.view_type == 'peep' and self.view_who == peep:
+                    self.view_who = new_house
+                    self.view_type = 'house'
 
         self.peeps = [p for p in self.peeps if not p.is_removable()]
 
@@ -161,13 +398,25 @@ class Game:
                 new_peep = Peep(house.r, house.c, self.game_map)
                 new_peep.life = house.life
                 new_peeps.append(new_peep)
+                if self.view_type == 'house' and self.view_who == house:
+                    self.view_who = new_peep
+                    self.view_type = 'peep'
             else:
                 houses_to_keep.append(house)
                 if house.can_spawn_peep():
                     new_peep = Peep(house.r, house.c, self.game_map)
                     new_peeps.append(new_peep)
+
         self.game_map.houses = houses_to_keep
         self.peeps.extend(new_peeps)
+
+        # Garder la sélection valide si la cible existe encore.
+        if self.view_type == 'peep' and self.view_who not in self.peeps:
+            self.view_who = None
+            self.view_type = None
+        elif self.view_type == 'house' and self.view_who not in self.game_map.houses:
+            self.view_who = None
+            self.view_type = None
 
     def draw(self):
         self.internal_surface.fill(BLACK)
@@ -188,6 +437,9 @@ class Game:
             if peep.y < start_r or peep.y >= end_r or peep.x < start_c or peep.x >= end_c:
                 continue
             peep.draw(self.internal_surface, cam_r, cam_c)
+
+        if self.view_who is not None and self.view_type is not None:
+            self._draw_shield_marker(self.internal_surface, self.view_who, self.view_type, cam_r, cam_c)
 
         # Curseur sur le coin le plus proche
         mouse_x, mouse_y = pygame.mouse.get_pos()
@@ -216,6 +468,8 @@ class Game:
                     pygame.draw.circle(self.internal_surface, RED, (px, py + TILE_HALF_H), 3)
 
         self.minimap.draw(self.internal_surface, self.game_map, self.camera, self.peeps)
+
+        self._draw_shield_panel(self.internal_surface)
 
         if self.show_debug:
             self.draw_debug_info()

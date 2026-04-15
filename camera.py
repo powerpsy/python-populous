@@ -17,22 +17,34 @@ class Camera:
         if self.move_timer > 0:
             return
 
-        moved = False
         dr, dc = 0, 0
-        
-        # Mouvement strictement par case entière
+
+        # Somme des directions pour autoriser les combinaisons (8 directions possibles).
         if keys[pygame.K_LEFT] or keys[pygame.K_a]:
-            dr, dc = 1, -1
-            moved = True
-        elif keys[pygame.K_RIGHT] or keys[pygame.K_d]:
-            dr, dc = -1, 1
-            moved = True
-        elif keys[pygame.K_UP] or keys[pygame.K_w]:
-            dr, dc = -1, -1
-            moved = True
-        elif keys[pygame.K_DOWN] or keys[pygame.K_s]:
-            dr, dc = 1, 1
-            moved = True
+            dr += 1
+            dc -= 1
+        if keys[pygame.K_RIGHT] or keys[pygame.K_d]:
+            dr -= 1
+            dc += 1
+        if keys[pygame.K_UP] or keys[pygame.K_w]:
+            dr -= 1
+            dc -= 1
+        if keys[pygame.K_DOWN] or keys[pygame.K_s]:
+            dr += 1
+            dc += 1
+
+        # Normalise le déplacement à une case par tick, même avec deux touches.
+        if dr > 0:
+            dr = 1
+        elif dr < 0:
+            dr = -1
+
+        if dc > 0:
+            dc = 1
+        elif dc < 0:
+            dc = -1
+
+        moved = (dr != 0 or dc != 0)
             
         if moved:
             self.r += float(dr)
