@@ -297,8 +297,8 @@ class GameMap:
             if house.building_type == 'castle':
                 from settings import CASTLE_9_TILES
                 offsets = [
-                    (-1, -1, CASTLE_9_TILES['corner']),     (-1, 0, CASTLE_9_TILES['side_tb']),     (-1, 1, CASTLE_9_TILES['corner']),
-                    (0, -1, CASTLE_9_TILES['side_lr']),     (0, 0, CASTLE_9_TILES['center']),       (0, 1, CASTLE_9_TILES['side_lr']),
+                    (0, 0, CASTLE_9_TILES['center']), (-1, -1, CASTLE_9_TILES['corner']),     (-1, 0, CASTLE_9_TILES['side_tb']),     (-1, 1, CASTLE_9_TILES['corner']),
+                    (0, -1, CASTLE_9_TILES['side_lr']),            (0, 1, CASTLE_9_TILES['side_lr']),
                     (1, -1, CASTLE_9_TILES['corner']),      (1, 0, CASTLE_9_TILES['side_tb']),      (1, 1, CASTLE_9_TILES['corner'])
                 ]
                 offsets.sort(key=lambda x: (house.r + x[0]) + (house.c + x[1]))

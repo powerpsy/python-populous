@@ -159,16 +159,16 @@ class Game:
     def _get_weapon_name(self, target, target_type):
         if target_type == 'house':
             by_type = {
-                'hut': 'Aucune',
-                'house_small': 'Aucune',
-                'house_medium': 'Aucune',
-                'castle_small': 'Garnison I',
-                'castle_medium': 'Garnison II',
-                'castle_large': 'Garnison III',
-                'fortress_small': 'Garnison IV',
-                'fortress_medium': 'Garnison V',
-                'fortress_large': 'Garnison VI',
-                'castle': 'Garnison VII',
+                'hut': 'A',
+                'house_small': 'B',
+                'house_medium': 'C',
+                'castle_small': 'D',
+                'castle_medium': 'E',
+                'castle_large': 'F',
+                'fortress_small': 'G',
+                'fortress_medium': 'H',
+                'fortress_large': 'I',
+                'castle': 'J',
             }
             return by_type.get(target.building_type, 'Aucune')
 
@@ -192,13 +192,27 @@ class Game:
         if target_type == 'peep':
             rect = self._get_peep_sprite_rect(target, cam_r, cam_c)
             # Sur le peep comme s'il le tenait (légèrement décalé)
-            x = rect.centerx -1
+            x = rect.centerx - 1
             y = rect.centery - shield_sprite.get_height() // 2 + 2
             surface.blit(shield_sprite, (x, y))
             return
 
+
+        # Pour le château, placer le shield comme pour les autres bâtiments mais sur la case centrale (r, c)
+        if getattr(target, 'building_type', None) == 'castle':
+            center_r = getattr(target, 'r', 0)
+            center_c = getattr(target, 'c', 0)
+            alt = self.game_map.get_corner_altitude(center_r, center_c)
+            sx, sy = self.game_map.world_to_screen(center_r, center_c, alt, cam_r, cam_c)
+            # Simule un "rect" virtuel pour la case centrale
+            rect = pygame.Rect(sx - TILE_HALF_W, sy, TILE_WIDTH, TILE_HEIGHT)
+            x = rect.centerx - shield_sprite.get_width() // 2 + 11
+            y = rect.top - shield_sprite.get_height() - 2 + 23
+            surface.blit(shield_sprite, (x, y))
+            return
+
         rect = self._get_house_sprite_rect(target, cam_r, cam_c)
-        # Décalage demandé : 32px à droite, 11px en bas
+        # Décalage générique pour les autres bâtiments
         x = rect.centerx - shield_sprite.get_width() // 2 + 11
         y = rect.top - shield_sprite.get_height() - 2 + 23
         surface.blit(shield_sprite, (x, y))
