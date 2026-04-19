@@ -9,6 +9,9 @@ from camera import Camera
 from minimap import Minimap
 
 class Game:
+    def _init_confirmed_buttons(self):
+        self.confirmed_buttons = set(['N', 'S', 'E', 'W', 'NE', 'NW', '_find_shield', '_do_quake', '_do_knight'])
+
     def __init__(self):
         pygame.init()
         self.clock = pygame.time.Clock()
@@ -60,12 +63,58 @@ class Game:
         self.minimap = Minimap(0, 0) # Position de la minimap
         self.peeps = []
         self.running = True
-        self.show_debug = False
+        self.show_debug = True
         self.show_scanlines = False
         self.view_who = None
         self.view_type = None
         self.scanline_surface = None
         self._update_scanline_surface()
+
+        # Initialisation des boutons confirmés (cadre jaune)
+        self._init_confirmed_buttons()
+
+        # --- Initialisation des zones interactives de l'interface ---
+        cx, cy = 64, 168 # Centre de base
+        dx, dy = 16, 8   # Décalage isométrique
+        hw, hh = 16, 8   # Taille isométrique pour les boutons
+        
+        # 5 lignes de 9 7 5 3 1 actions positionnées "en dur"
+        self.ui_buttons = {
+            # --- Ligne 0 (9 actions) ---
+            '_do_flood':    {'c': (cx - dx*8, cy - dy*2), 'hw': hw, 'hh': hh}, # a
+            '_battle_over': {'c': (cx - dx*6, cy - dy*2), 'hw': hw, 'hh': hh}, # b
+            '_do_quake':    {'c': (cx - dx,   cy - dy*3), 'hw': hw, 'hh': hh}, # c OK
+            'NW':           {'c': (cx - dx,   cy - dy),   'hw': hw, 'hh': hh}, # d OK
+            'N':            {'c': (cx,        cy - dy*2), 'hw': hw, 'hh': hh}, # e OK
+            'NE':           {'c': (cx + dx*1, cy - dy*1), 'hw': hw, 'hh': hh}, # f OK
+            '_do_shield':   {'c': (cx + dx*4, cy - dy*2), 'hw': hw, 'hh': hh}, # g
+            '_find_papal':  {'c': (cx + dx*6, cy - dy*2), 'hw': hw, 'hh': hh}, # h
+            '_find_knight': {'c': (cx + dx*8, cy - dy*2), 'hw': hw, 'hh': hh}, # i
+
+            # --- Ligne 1 (7 actions) ---
+            '_do_volcano':  {'c': (cx - dx*6, cy),        'hw': hw, 'hh': hh}, # j
+            '_do_knight':   {'c': (cx - dx*2, cy - dy*2), 'hw': hw, 'hh': hh}, # k OK
+            'W':            {'c': (cx - dx*2, cy),        'hw': hw, 'hh': hh}, # l OK
+            '_find_shield': {'c': (cx,        cy),        'hw': hw, 'hh': hh}, # m OK
+            'E':            {'c': (cx + dx*2, cy),        'hw': hw, 'hh': hh}, # n
+            'raise_terrain':{'c': (cx + dx*4, cy),        'hw': hw, 'hh': hh}, # o
+            '_find_battle': {'c': (cx + dx*6, cy),        'hw': hw, 'hh': hh}, # p
+
+            # --- Ligne 2 (5 actions) ---
+            'do_swamp':     {'c': (cx - dx*4, cy + dy*2), 'hw': hw, 'hh': hh}, # q OK
+            'SW':           {'c': (cx - dx*2, cy + dy*2), 'hw': hw, 'hh': hh}, # r
+            'S':            {'c': (cx,        cy + dy*2), 'hw': hw, 'hh': hh}, # s OK
+            'SE':           {'c': (cx + dx*2, cy + dy*2), 'hw': hw, 'hh': hh}, # t
+            '_do_papal':    {'c': (cx + dx*4, cy + dy*2), 'hw': hw, 'hh': hh}, # u
+
+            # --- Ligne 3 (3 actions) ---
+            '_go_papal':    {'c': (cx - dx*2, cy + dy*4), 'hw': hw, 'hh': hh}, # v
+            '_go_build':    {'c': (cx,        cy + dy*4), 'hw': hw, 'hh': hh}, # w
+            '_go_assemble': {'c': (cx + dx*2, cy + dy*4), 'hw': hw, 'hh': hh}, # x
+
+            # --- Ligne 4 (1 action) ---
+            '_go_fight':    {'c': (cx,        cy + dy*6), 'hw': hw, 'hh': hh}, # y
+        }
 
     def _get_peep_sprite_rect(self, peep, cam_r, cam_c):
         gr, gc = int(peep.y), int(peep.x)
@@ -224,10 +273,10 @@ class Game:
         sprites = Peep.get_sprites()
 
         # Coordonnées déduites des 4 parties du blason (en haut à droite, UI commence à x=256)
-        blason_tl = (271, 4)   # Top-Left (Colonie) : décalé de 5px droite, 7px haut
-        blason_tr = (287, 2)   # Top-Right (Arme) : décalé de 5px gauche, 7px haut
-        blason_bl = (271, 23)  # Bottom-Left (Sprite/Animation) : inchangé
-        blason_br = (287, 19)  # Bottom-Right (Energie) : décalé 3px gauche, 7px haut
+        blason_tl = (271, 4)   # Top-Left (Colonie)
+        blason_tr = (287, 2)   # Top-Right (Arme)
+        blason_bl = (271, 23)  # Bottom-Left (Sprite/Animation)
+        blason_br = (287, 19)  # Bottom-Right (Energie)
 
         # 1. Colonie bleue (4,8) ou rouge (4,9) -> pour l'instant prenons la bleue
         colony_sprite = sprites.get((4, 8))
@@ -333,6 +382,31 @@ class Game:
             self.update(dt)
             self.draw()
 
+    def _handle_ui_click(self, action):
+        if action in ['N', 'S', 'E', 'W', 'NW', 'NE', 'SW', 'SE']:
+            # Ces valeurs de déplacement doivent être ajustables si besoin
+            step = 1.0 # 1 case à la fois
+            
+            if 'N' in action:
+                self.camera.c -= step
+                self.camera.r -= step
+            if 'S' in action:
+                self.camera.c += step
+                self.camera.r += step
+            if 'E' in action:
+                self.camera.c += step
+                self.camera.r -= step
+            if 'W' in action:
+                self.camera.c -= step
+                self.camera.r += step
+                
+            # Bride la caméra à la carte
+            import settings
+            self.camera.c = max(0.0, min(float(settings.GRID_WIDTH - 8), self.camera.c))
+            self.camera.r = max(0.0, min(float(settings.GRID_HEIGHT - 8), self.camera.r))
+        else:
+            print(f"Pouvoir sélectionné (en attente d'implémentation) : {action}")
+
     def events(self):
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -366,6 +440,21 @@ class Game:
                 
                 # Check interaction minimap (si clic dessus, on ne fait pas d'autre action)
                 if event.button == 1 and self.minimap.handle_click(mx, my, self.camera):
+                    continue
+
+                # Vérifier les clics sur l'interface graphique (boussole et pouvoirs)
+                ui_clicked = False
+                if event.button == 1:
+                    for action, shape in self.ui_buttons.items():
+                        bcx, bcy = shape['c']
+                        bhw, bhh = shape['hw'], shape['hh']
+                        # Test de collision point dans losange
+                        if (abs(mx - bcx) / float(bhw) + abs(my - bcy) / float(bhh)) <= 1.0:
+                            self._handle_ui_click(action)
+                            ui_clicked = True
+                            break
+                            
+                if ui_clicked:
                     continue
 
                 # Clic droit sur entité: active le shield (peep ou bâtiment)
@@ -453,7 +542,11 @@ class Game:
             peep.draw(self.internal_surface, cam_r, cam_c)
 
         if self.view_who is not None and self.view_type is not None:
-            self._draw_shield_marker(self.internal_surface, self.view_who, self.view_type, cam_r, cam_c)
+            # Vérifie si l'entité est bien dans la zone 8x8 visible de la caméra
+            r = getattr(self.view_who, 'y', getattr(self.view_who, 'r', -1))
+            c = getattr(self.view_who, 'x', getattr(self.view_who, 'c', -1))
+            if start_r <= r < end_r and start_c <= c < end_c:
+                self._draw_shield_marker(self.internal_surface, self.view_who, self.view_type, cam_r, cam_c)
 
         # Curseur sur le coin le plus proche
         mouse_x, mouse_y = pygame.mouse.get_pos()
@@ -486,6 +579,22 @@ class Game:
         self._draw_shield_panel(self.internal_surface)
 
         if self.show_debug:
+            # Dessin des hitboxes de l'interface pour faciliter l'ajustement
+            # Les boutons confirmés seront en jaune, les autres en violet
+            confirmed_buttons = getattr(self, 'confirmed_buttons', set())
+            for name, shape in self.ui_buttons.items():
+                bcx, bcy = shape['c']
+                bhw, bhh = shape['hw'], shape['hh']
+                pts = [
+                    (bcx, bcy - bhh),
+                    (bcx + bhw, bcy),
+                    (bcx, bcy + bhh),
+                    (bcx - bhw, bcy)
+                ]
+                if name in confirmed_buttons:
+                    pygame.draw.polygon(self.internal_surface, (255, 255, 0), pts, 1)  # Jaune
+                else:
+                    pygame.draw.polygon(self.internal_surface, (200, 0, 200), pts, 1)  # Violet
             self.draw_debug_info()
         
         # Scale internal surface to display window size
