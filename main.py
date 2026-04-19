@@ -9,9 +9,6 @@ from camera import Camera
 from minimap import Minimap
 
 class Game:
-    def _init_confirmed_buttons(self):
-        self.confirmed_buttons = set(['N', 'S', 'E', 'W', 'NE', 'NW', '_find_shield', '_do_quake', '_do_knight'])
-
     def __init__(self):
         pygame.init()
         self.clock = pygame.time.Clock()
@@ -20,7 +17,7 @@ class Game:
         # Charger l'interface pour déterminer la taille de l'écran
         ui_path = os.path.join(GFX_DIR, "AmigaUI.png")
         ui_raw = pygame.image.load(ui_path)
-        
+        # Initialisation des zones interactives de l'interface ---        
         self.base_size = ui_raw.get_size()
         self.display_scale = 3
         
@@ -70,8 +67,6 @@ class Game:
         self.scanline_surface = None
         self._update_scanline_surface()
 
-        # Initialisation des boutons confirmés (cadre jaune)
-        self._init_confirmed_buttons()
 
         # --- Initialisation des zones interactives de l'interface ---
         cx, cy = 64, 168 # Centre de base
@@ -79,42 +74,66 @@ class Game:
         hw, hh = 16, 8   # Taille isométrique pour les boutons
         
         # 5 lignes de 9 7 5 3 1 actions positionnées "en dur"
+        # Initialisation du feedback bouton (sprite)
+        self.last_button_click = None
         self.ui_buttons = {
             # --- Ligne 0 (9 actions) ---
-            '_do_flood':    {'c': (cx - dx*8, cy - dy*2), 'hw': hw, 'hh': hh}, # a
-            '_battle_over': {'c': (cx - dx*6, cy - dy*2), 'hw': hw, 'hh': hh}, # b
-            '_do_quake':    {'c': (cx - dx,   cy - dy*3), 'hw': hw, 'hh': hh}, # c OK
-            'NW':           {'c': (cx - dx,   cy - dy),   'hw': hw, 'hh': hh}, # d OK
-            'N':            {'c': (cx,        cy - dy*2), 'hw': hw, 'hh': hh}, # e OK
-            'NE':           {'c': (cx + dx*1, cy - dy*1), 'hw': hw, 'hh': hh}, # f OK
-            '_do_shield':   {'c': (cx + dx*4, cy - dy*2), 'hw': hw, 'hh': hh}, # g
-            '_find_papal':  {'c': (cx + dx*6, cy - dy*2), 'hw': hw, 'hh': hh}, # h
-            '_find_knight': {'c': (cx + dx*8, cy - dy*2), 'hw': hw, 'hh': hh}, # i
+            '_raise_terrain': {'c': (cx + dx*2, cy + dy*2), 'hw': hw, 'hh': hh}, # o OK
 
-            # --- Ligne 1 (7 actions) ---
-            '_do_volcano':  {'c': (cx - dx*6, cy),        'hw': hw, 'hh': hh}, # j
-            '_do_knight':   {'c': (cx - dx*2, cy - dy*2), 'hw': hw, 'hh': hh}, # k OK
-            'W':            {'c': (cx - dx*2, cy),        'hw': hw, 'hh': hh}, # l OK
-            '_find_shield': {'c': (cx,        cy),        'hw': hw, 'hh': hh}, # m OK
-            'E':            {'c': (cx + dx*2, cy),        'hw': hw, 'hh': hh}, # n
-            'raise_terrain':{'c': (cx + dx*4, cy),        'hw': hw, 'hh': hh}, # o
-            '_find_battle': {'c': (cx + dx*6, cy),        'hw': hw, 'hh': hh}, # p
+            '_do_volcano':    {'c': (cx - dx*3, cy - dy*3), 'hw': hw, 'hh': hh}, # j OK
+            '_do_knight':     {'c': (cx - dx*2, cy - dy*2), 'hw': hw, 'hh': hh}, # k OK
+            '_do_flood':      {'c': (cx - dx*3, cy - dy*5), 'hw': hw, 'hh': hh}, # a OK
+            '_do_quake':      {'c': (cx - dx*1, cy - dy*3), 'hw': hw, 'hh': hh}, # c OK
+            '_do_swamp':      {'c': (cx - dx*3, cy - dy*1), 'hw': hw, 'hh': hh}, # q OK
+            '_do_papal':      {'c': (cx + dx*1, cy + dy*3), 'hw': hw, 'hh': hh}, # u OK
+            '_do_shield':     {'c': (cx + dx*3, cy + dy*1), 'hw': hw, 'hh': hh}, # g OK
 
-            # --- Ligne 2 (5 actions) ---
-            'do_swamp':     {'c': (cx - dx*4, cy + dy*2), 'hw': hw, 'hh': hh}, # q OK
-            'SW':           {'c': (cx - dx*2, cy + dy*2), 'hw': hw, 'hh': hh}, # r
-            'S':            {'c': (cx,        cy + dy*2), 'hw': hw, 'hh': hh}, # s OK
-            'SE':           {'c': (cx + dx*2, cy + dy*2), 'hw': hw, 'hh': hh}, # t
-            '_do_papal':    {'c': (cx + dx*4, cy + dy*2), 'hw': hw, 'hh': hh}, # u
+            '_find_battle':   {'c': (cx + dx*3, cy + dy*3), 'hw': hw, 'hh': hh}, # p OK
+            '_find_shield':   {'c': (cx,        cy),        'hw': hw, 'hh': hh}, # m OK
+            '_find_papal':    {'c': (cx + dx*4, cy + dy*2), 'hw': hw, 'hh': hh}, # h
+            '_find_knight':   {'c': (cx + dx*5, cy + dy*3), 'hw': hw, 'hh': hh}, # i
 
-            # --- Ligne 3 (3 actions) ---
-            '_go_papal':    {'c': (cx - dx*2, cy + dy*4), 'hw': hw, 'hh': hh}, # v
-            '_go_build':    {'c': (cx,        cy + dy*4), 'hw': hw, 'hh': hh}, # w
-            '_go_assemble': {'c': (cx + dx*2, cy + dy*4), 'hw': hw, 'hh': hh}, # x
+            'W':              {'c': (cx - dx*2, cy),        'hw': hw, 'hh': hh}, # l OK
+            'NW':             {'c': (cx - dx*1, cy - dy),   'hw': hw, 'hh': hh}, # d OK
+            'N':              {'c': (cx,        cy - dy*2), 'hw': hw, 'hh': hh}, # e OK
+            'NE':             {'c': (cx + dx*1, cy - dy*1), 'hw': hw, 'hh': hh}, # f OK
+            'E':              {'c': (cx + dx*2, cy),        'hw': hw, 'hh': hh}, # n OK
+            'SW':             {'c': (cx - dx*1, cy + dy*1), 'hw': hw, 'hh': hh}, # r OK
+            'S':              {'c': (cx,        cy + dy*2), 'hw': hw, 'hh': hh}, # s OK
+            'SE':             {'c': (cx + dx*1, cy + dy*1), 'hw': hw, 'hh': hh}, # t OK
 
-            # --- Ligne 4 (1 action) ---
-            '_go_fight':    {'c': (cx,        cy + dy*6), 'hw': hw, 'hh': hh}, # y
+            '_go_papal':      {'c': (cx - dx*3, cy + dy*1), 'hw': hw, 'hh': hh}, # v OK
+            '_go_build':      {'c': (cx - dx*2, cy + dy*2), 'hw': hw, 'hh': hh}, # w OK
+            '_go_assemble':   {'c': (cx - dx*1, cy + dy*3), 'hw': hw, 'hh': hh}, # x OK
+            '_go_fight':      {'c': (cx - dx*3, cy + dy*3), 'hw': hw, 'hh': hh}, # y OK
+
+            '_battle_over':   {'c': (cx - dx*2, cy - dy*4), 'hw': hw, 'hh': hh}, # b OK
         }
+
+        # --- Initialisation des sprites de boutons ---
+        self.button_sprite_indices = {}
+        self.button_sprites = []
+        # Charger la spritesheet
+        button_ui_path = os.path.join(GFX_DIR, "ButtonUI.png")
+        if os.path.exists(button_ui_path):
+            sheet = pygame.image.load(button_ui_path).convert_alpha()
+            sheet_w, sheet_h = sheet.get_size()
+            sprite_w, sprite_h = 34, 17
+            for row in range(5):
+                for col in range(5):
+                    x = col * sprite_w
+                    y = row * sprite_h
+                    if x + sprite_w <= sheet_w and y + sprite_h <= sheet_h:
+                        rect = pygame.Rect(x, y, sprite_w, sprite_h)
+                        self.button_sprites.append(sheet.subsurface(rect))
+        # Ordre des boutons pour l'indexation
+        button_order = [
+            '_do_flood', '_battle_over', '_do_quake', 'NW', 'N', 'NE', '_do_shield', '_find_papal', '_find_knight',
+            '_do_volcano', '_do_knight', 'W', '_find_shield', 'E', '_raise_terrain', '_find_battle',
+            '_do_swamp', 'SW', 'S', 'SE', '_do_papal', '_go_papal', '_go_build', '_go_assemble', '_go_fight'
+        ]
+        for idx, name in enumerate(button_order):
+            self.button_sprite_indices[name] = idx
 
     def _get_peep_sprite_rect(self, peep, cam_r, cam_c):
         gr, gc = int(peep.y), int(peep.x)
@@ -383,10 +402,12 @@ class Game:
             self.draw()
 
     def _handle_ui_click(self, action):
+        import time
+        self.last_button_click = (action, time.time())
         if action in ['N', 'S', 'E', 'W', 'NW', 'NE', 'SW', 'SE']:
+            print(f"Direction dpad : {action}")
             # Ces valeurs de déplacement doivent être ajustables si besoin
             step = 1.0 # 1 case à la fois
-            
             if 'N' in action:
                 self.camera.c -= step
                 self.camera.r -= step
@@ -399,7 +420,6 @@ class Game:
             if 'W' in action:
                 self.camera.c -= step
                 self.camera.r += step
-                
             # Bride la caméra à la carte
             import settings
             self.camera.c = max(0.0, min(float(settings.GRID_WIDTH - 8), self.camera.c))
@@ -525,6 +545,34 @@ class Game:
         self.internal_surface.fill(BLACK)
         self.internal_surface.blit(self.ui_image, (0, 0))
 
+        # Affichage du sprite du bouton cliqué si besoin
+        import time
+        if self.last_button_click is not None:
+            action, t0 = self.last_button_click
+            if (time.time() - t0) < 0.2:
+                # Mapping ISO pour l'affichage du sprite du dpad
+                dpad_iso_map = {
+                    'N': 'NW',
+                    'NE': 'N',
+                    'E': 'NE',
+                    'SE': 'E',
+                    'S': 'SE',
+                    'SW': 'S',
+                    'W': 'SW',
+                    'NW': 'W',
+                }
+                action_affiche = dpad_iso_map.get(action, action)
+                idx = self.button_sprite_indices.get(action_affiche)
+                if idx is not None and idx < len(self.button_sprites):
+                    # Afficher le sprite à la position du bouton
+                    shape = self.ui_buttons.get(action)
+                    if shape:
+                        bcx, bcy = shape['c']
+                        sprite = self.button_sprites[idx]
+                        sw, sh = sprite.get_size()
+                        pos = (int(bcx - sw // 2) + 1, int(bcy - sh // 2))
+                        self.internal_surface.blit(sprite, pos)
+
         cam_r, cam_c = self.camera.r, self.camera.c
 
         # Terrain
@@ -578,24 +626,7 @@ class Game:
 
         self._draw_shield_panel(self.internal_surface)
 
-        if self.show_debug:
-            # Dessin des hitboxes de l'interface pour faciliter l'ajustement
-            # Les boutons confirmés seront en jaune, les autres en violet
-            confirmed_buttons = getattr(self, 'confirmed_buttons', set())
-            for name, shape in self.ui_buttons.items():
-                bcx, bcy = shape['c']
-                bhw, bhh = shape['hw'], shape['hh']
-                pts = [
-                    (bcx, bcy - bhh),
-                    (bcx + bhw, bcy),
-                    (bcx, bcy + bhh),
-                    (bcx - bhw, bcy)
-                ]
-                if name in confirmed_buttons:
-                    pygame.draw.polygon(self.internal_surface, (255, 255, 0), pts, 1)  # Jaune
-                else:
-                    pygame.draw.polygon(self.internal_surface, (200, 0, 200), pts, 1)  # Violet
-            self.draw_debug_info()
+        # Suppression de l'affichage des cases violettes (debug UI)
         
         # Scale internal surface to display window size
         scaled_surface = pygame.transform.scale(self.internal_surface, self.screen.get_size())
@@ -606,9 +637,7 @@ class Game:
         
         pygame.display.flip()
 
-    def draw_debug_info(self):
-        mouse_x, mouse_y = pygame.mouse.get_pos()
-        mouse_x //= self.display_scale
+
         mouse_y //= self.display_scale
 
         cam_r, cam_c = self.camera.r, self.camera.c
