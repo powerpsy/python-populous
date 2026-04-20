@@ -106,10 +106,6 @@ BUILDING_TILES = {
 }
 
 # === Château 3x3 (tiles (4,5) à (4,8)) ===
-# Disposition sur 9 cases :
-#   (4,5)(4,8)(4,5)
-#   (4,7)(4,6)(4,7)
-#   (4,5)(4,8)(4,5)
 CASTLE_9_TILES = {
     'corner': (4, 5),
     'center': (4, 6),

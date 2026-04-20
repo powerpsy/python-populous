@@ -50,9 +50,9 @@ def load_sprite_surfaces():
 # Row 5-7: more animations, items, effects
 # Row 8: UI elements
 
+
 # Directions en isométrique: 0=SE, 1=S, 2=SW, 3=W, 4=NW, 5=N, 6=NE, 7=E
 # Simplified: we use row 0 columns for walk animation in a direction
-
 WALK_FRAMES = {
     'N':      [(0,  0), (0,  1)],
     'NE':     [(0,  2), (0,  3)],
@@ -65,6 +65,9 @@ WALK_FRAMES = {
     'IDLE':   [(0,  8), (0,  9)],
     'DROWN':  [(5,  8), (5,  9), (5, 10), (5, 11)],
 }
+
+# Export pour usage externe
+PEEP_WALK_FRAMES = WALK_FRAMES
 
 
 class Peep:
@@ -94,6 +97,7 @@ class Peep:
         self.energy_yellow = 0   # barres jaunes restantes
         self.energy_orange = 1.0  # fraction de la barre orange courante (0→1)
         self.in_house = False
+        self.weapon_type = 'hut' # Arme de départ : arme 0 (hut)
 
     def update(self, dt):
         if self.dead:

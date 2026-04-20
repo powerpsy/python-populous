@@ -9,33 +9,46 @@ from camera import Camera
 from minimap import Minimap
 
 class Game:
+    def move_camera_direction(self, direction):
+        # Déplace la caméra selon la direction
+        self.camera.move_direction(direction)
     def __init__(self):
+        # --- Scroll continu D-Pad ---
+        self.dpad_held_direction = None
+        self.dpad_held_timer = 0.0
+        self.dpad_repeat_delay = 0.2  # secondes entre scrolls
+        self.dpad_last_flash_time = 0.0  # timestamp du dernier scroll
+        self.papal_mode = False
+        self.papal_position = (GRID_HEIGHT // 2, GRID_WIDTH // 2)  # Un seul papal, centré au début
+        self.shield_mode = False  # Mode blason/shield
+        self.shield_target = None  # Entité actuellement "blasonnée"
+
         pygame.init()
         self.clock = pygame.time.Clock()
         self.font = pygame.font.SysFont("consolas", 16)
-        
+
         # Charger l'interface pour déterminer la taille de l'écran
         ui_path = os.path.join(GFX_DIR, "AmigaUI.png")
         ui_raw = pygame.image.load(ui_path)
         # Initialisation des zones interactives de l'interface ---        
         self.base_size = ui_raw.get_size()
         self.display_scale = 3
-        
+
         # Initialiser l'écran basé sur l'UI avec l'échelle d'affichage
         self.screen = pygame.display.set_mode((self.base_size[0] * self.display_scale, self.base_size[1] * self.display_scale))
         pygame.display.set_caption("Populous")
-        
+
         self.ui_image = ui_raw.convert_alpha()
         self.internal_surface = pygame.Surface(self.base_size)
         self.internal_surface.blit(self.ui_image, (0, 0))
-        
+
         # Dimensions de la zone de render (plein écran à l'échelle 1)
         self.view_rect = pygame.Rect(0, 0, self.ui_image.get_width(), self.ui_image.get_height())
-        
+
         import settings
         import game_map
         import peep
-        
+
         settings.SCREEN_WIDTH = self.ui_image.get_width()
         settings.SCREEN_HEIGHT = self.ui_image.get_height()
         # Coordonnées en dur pour la pointe de la zone diamant
@@ -58,6 +71,28 @@ class Game:
         self.game_map = GameMap(GRID_WIDTH, GRID_HEIGHT)
         self.game_map.randomize()
         self.minimap = Minimap(0, 0) # Position de la minimap
+
+        # --- Chargement des sprites d'armes ---
+        self.weapon_sprites = []
+        weapons_path = os.path.join(GFX_DIR, "Weapons.png")
+        if os.path.exists(weapons_path):
+            sheet = pygame.image.load(weapons_path).convert_alpha()
+            for i in range(10):
+                rect = pygame.Rect(i * 16, 0, 16, 16)
+                self.weapon_sprites.append(sheet.subsurface(rect))
+        # Mapping type de bâtiment -> index sprite
+        self.weapon_sprite_indices = {
+            'hut': 0,
+            'house_small': 1,
+            'house_medium': 2,
+            'castle_small': 3,
+            'castle_medium': 4,
+            'castle_large': 5,
+            'fortress_small': 6,
+            'fortress_medium': 7,
+            'fortress_large': 8,
+            'castle': 9,
+        }
         self.peeps = []
         self.running = True
         self.show_debug = True
@@ -66,7 +101,6 @@ class Game:
         self.view_type = None
         self.scanline_surface = None
         self._update_scanline_surface()
-
 
         # --- Initialisation des zones interactives de l'interface ---
         cx, cy = 64, 168 # Centre de base
@@ -151,19 +185,8 @@ class Game:
         sx, sy = self.game_map.world_to_screen(peep.y, peep.x, alt, cam_r, cam_c)
         ground_y = sy + TILE_HALF_H
         sprites = Peep.get_sprites()
-        frames = {
-            'N': [(0, 0), (0, 1)],
-            'NE': [(0, 2), (0, 3)],
-            'E': [(0, 4), (0, 5)],
-            'SE': [(0, 6), (0, 7)],
-            'S': [(0, 8), (0, 9)],
-            'SW': [(0, 10), (0, 11)],
-            'W': [(0, 12), (0, 13)],
-            'NW': [(0, 14), (0, 15)],
-            'IDLE': [(0, 8), (0, 9)],
-            'DROWN': [(5, 8), (5, 9), (5, 10), (5, 11)],
-        }
-        anim = frames.get(peep.facing, frames['IDLE'])
+        from peep import PEEP_WALK_FRAMES
+        anim = PEEP_WALK_FRAMES.get(peep.facing, PEEP_WALK_FRAMES['IDLE'])
         key = anim[peep.anim_frame % len(anim)]
         sprite = sprites.get(key)
         if sprite is None:
@@ -304,13 +327,26 @@ class Game:
         if colony_sprite:
             surface.blit(colony_sprite, blason_tl)
 
-        # 2. Arme représentée par une lettre
-        weapon = self._get_weapon_name(self.view_who, self.view_type)
-        weapon_letter = 'N' # None
-        if weapon != 'Aucune':
-            weapon_letter = weapon[0].upper()
-        w_text = self.font.render(weapon_letter, True, (240, 240, 240))
-        surface.blit(w_text, (blason_tr[0] + 6, blason_tr[1] + 2))
+        # 2. Arme représentée par un sprite
+        weapon_idx = None
+        if self.view_type == 'house':
+            weapon_idx = self.weapon_sprite_indices.get(getattr(self.view_who, 'building_type', ''), None)
+        elif self.view_type == 'peep':
+            weapon_idx = self.weapon_sprite_indices.get(getattr(self.view_who, 'weapon_type', ''), None)
+        if weapon_idx is not None and 0 <= weapon_idx < len(self.weapon_sprites):
+            sprite = self.weapon_sprites[weapon_idx]
+            # Centrer le sprite dans le quart haut-droit
+            x = blason_tr[0] + 2
+            y = blason_tr[1] + 1
+            surface.blit(sprite, (x, y))
+        else:
+            # Fallback : lettre grise
+            weapon = self._get_weapon_name(self.view_who, self.view_type)
+            weapon_letter = 'N' # None
+            if weapon != 'Aucune':
+                weapon_letter = weapon[0].upper()
+            w_text = self.font.render(weapon_letter, True, (240, 240, 240))
+            surface.blit(w_text, (blason_tr[0] + 6, blason_tr[1] + 2))
 
         # 3. Sprite du peep animé, ou drapeau animé pour un bâtiment
         show_flag = (self.view_type == 'house')
@@ -319,20 +355,9 @@ class Game:
             show_flag = True
 
         if not show_flag:
-            frames = {
-                'N': [(0, 0), (0, 1)],
-                'NE': [(0, 2), (0, 3)],
-                'E': [(0, 4), (0, 5)],
-                'SE': [(0, 6), (0, 7)],
-                'S': [(0, 8), (0, 9)],
-                'SW': [(0, 10), (0, 11)],
-                'W': [(0, 12), (0, 13)],
-                'NW': [(0, 14), (0, 15)],
-                'IDLE': [(0, 8), (0, 9)],
-                'DROWN': [(5, 8), (5, 9), (5, 10), (5, 11)],
-            }
+            from peep import PEEP_WALK_FRAMES
             facing = getattr(self.view_who, 'facing', 'IDLE')
-            anim = frames.get(facing, frames['IDLE'])
+            anim = PEEP_WALK_FRAMES.get(facing, PEEP_WALK_FRAMES['IDLE'])
             frame_idx = getattr(self.view_who, 'anim_frame', 0) % len(anim)
             peep_idx = anim[frame_idx]
             peep_sprite = sprites.get(peep_idx)
@@ -364,17 +389,22 @@ class Game:
         bar_w = 4
         bar_max_h = 16
         
+        # Fond gris pour les deux jauges
+        rect1_x = blason_br[0] + 3
+        rect2_x = blason_br[0] + 11
+        bar_bg_y = blason_br[1] + 3
+        pygame.draw.rect(surface, (102, 102, 102), (rect1_x, bar_bg_y, bar_w, bar_max_h))
+        pygame.draw.rect(surface, (102, 102, 102), (rect2_x, bar_bg_y, bar_w, bar_max_h))
+
         # 1er rectangle : jaune (centaines)
         bar1_h = int(bar_max_h * ratio_yellow)
-        rect1_x = blason_br[0] + 4
-        bar1_y = blason_br[1] + 2 + (bar_max_h - bar1_h)
+        bar1_y = bar_bg_y + (bar_max_h - bar1_h)
         if bar1_h > 0:
             pygame.draw.rect(surface, (255, 220, 0), (rect1_x, bar1_y, bar_w, bar1_h))
 
         # 2ème rectangle : orange (unités)
         bar2_h = int(bar_max_h * ratio_orange)
-        rect2_x = blason_br[0] + 12
-        bar2_y = blason_br[1] + 2 + (bar_max_h - bar2_h)
+        bar2_y = bar_bg_y + (bar_max_h - bar2_h)
         if bar2_h > 0:
             pygame.draw.rect(surface, (255, 140, 0), (rect2_x, bar2_y, bar_w, bar2_h))
 
@@ -394,6 +424,7 @@ class Game:
                 self.peeps.append(Peep(r, c, self.game_map))
 
     def run(self):
+        pygame.mouse.set_visible(False)
         self.spawn_initial_peeps(10)
         while self.running:
             dt = self.clock.tick(60) / 1000.0
@@ -401,29 +432,26 @@ class Game:
             self.update(dt)
             self.draw()
 
-    def _handle_ui_click(self, action):
+    def _handle_ui_click(self, action, held=False):
         import time
         self.last_button_click = (action, time.time())
+        # Annule tout mode spécial si une autre action est sélectionnée
+        if action != '_do_papal':
+            self.papal_mode = False
+        if action != '_do_shield':
+            self.shield_mode = False
         if action in ['N', 'S', 'E', 'W', 'NW', 'NE', 'SW', 'SE']:
-            print(f"Direction dpad : {action}")
-            # Ces valeurs de déplacement doivent être ajustables si besoin
-            step = 1.0 # 1 case à la fois
-            if 'N' in action:
-                self.camera.c -= step
-                self.camera.r -= step
-            if 'S' in action:
-                self.camera.c += step
-                self.camera.r += step
-            if 'E' in action:
-                self.camera.c += step
-                self.camera.r -= step
-            if 'W' in action:
-                self.camera.c -= step
-                self.camera.r += step
-            # Bride la caméra à la carte
-            import settings
-            self.camera.c = max(0.0, min(float(settings.GRID_WIDTH - 8), self.camera.c))
-            self.camera.r = max(0.0, min(float(settings.GRID_HEIGHT - 8), self.camera.r))
+            if held:
+                self.dpad_held_direction = action
+                self.dpad_held_timer = 0.0  # scroll immédiat
+                self.dpad_last_flash_time = time.time()
+            self.move_camera_direction(action)
+        elif action == '_do_papal':
+            print("Mode papal activé")
+            self.papal_mode = True
+        elif action == '_do_shield':
+            print("Mode shield activé")
+            self.shield_mode = True
         else:
             print(f"Pouvoir sélectionné (en attente d'implémentation) : {action}")
 
@@ -457,11 +485,9 @@ class Game:
                 mx, my = pygame.mouse.get_pos()
                 mx //= self.display_scale
                 my //= self.display_scale
-                
                 # Check interaction minimap (si clic dessus, on ne fait pas d'autre action)
                 if event.button == 1 and self.minimap.handle_click(mx, my, self.camera):
                     continue
-
                 # Vérifier les clics sur l'interface graphique (boussole et pouvoirs)
                 ui_clicked = False
                 if event.button == 1:
@@ -470,35 +496,65 @@ class Game:
                         bhw, bhh = shape['hw'], shape['hh']
                         # Test de collision point dans losange
                         if (abs(mx - bcx) / float(bhw) + abs(my - bcy) / float(bhh)) <= 1.0:
-                            self._handle_ui_click(action)
+                            self._handle_ui_click(action, held=True)
                             ui_clicked = True
                             break
-                            
                 if ui_clicked:
                     continue
-
-                # Clic droit sur entité: active le shield (peep ou bâtiment)
-                if event.button == 3 and self._select_view_target(mx, my):
-                    continue
-
+                # Mode shield : clic gauche sur entité = appliquer le blason
+                if self.shield_mode:
+                    if event.button == 1:
+                        if self._select_view_target(mx, my):
+                            self.shield_target = self.view_who
+                            self.shield_mode = False
+                        return
+                    elif event.button == 3:
+                        # Annule le mode shield et revient à raise_terrain
+                        self.shield_mode = False
+                        self._handle_ui_click('_raise_terrain', held=False)
+                        return
+                # Clic droit sur entité: (désactivé, remplacé par _do_shield)
+                # if event.button == 3 and self._select_view_target(mx, my):
+                #     continue
                 # Clics souris (on permet partout puisque le viewport est plein écran)
                 if self.view_rect.collidepoint(mx, my):
                     vp_x = mx - self.view_rect.x
                     vp_y = my - self.view_rect.y
-                    
                     r, c = self.game_map.screen_to_nearest_corner(
                         vp_x, vp_y, self.camera.r, self.camera.c
                     )
-                    
                     # On vérifie qu'on clique bien sur la zone 8x8 visible de la caméra
                     start_r, end_r, start_c, end_c = self.game_map.get_visible_bounds(self.camera.r, self.camera.c)
                     if start_r <= r <= end_r and start_c <= c <= end_c:
-                        if event.button == 1:
-                            self.game_map.raise_corner(r, c)
-                        elif event.button == 3:
-                            self.game_map.lower_corner(r, c)
+                        if self.papal_mode:
+                            if event.button == 1:
+                                # Place/déplace le papal (un seul possible) sur la case au nord-ouest (NW)
+                                self.papal_position = (max(r - 1, 0), max(c - 1, 0))
+                                self.papal_mode = False  # Désactive le mode après un clic
+                            elif event.button == 3:
+                                # Annule le mode papal et revient à raise_terrain
+                                self.papal_mode = False
+                                self._handle_ui_click('_raise_terrain', held=False)
+                            return
+                        elif not self.papal_mode and not self.shield_mode:
+                            if event.button == 1:
+                                self.game_map.raise_corner(r, c)
+                            elif event.button == 3:
+                                self.game_map.lower_corner(r, c)
+            elif event.type == pygame.MOUSEBUTTONUP:
+                # Relâchement du clic : stop scroll continu
+                self.dpad_held_direction = None
 
     def update(self, dt):
+        import time
+        # Scroll continu D-Pad UI
+        if self.dpad_held_direction:
+            self.dpad_held_timer -= dt
+            if self.dpad_held_timer <= 0.0:
+                self.move_camera_direction(self.dpad_held_direction)
+                self.dpad_held_timer = self.dpad_repeat_delay
+                self.dpad_last_flash_time = time.time()
+
         self.camera.update(dt)
         self.game_map.update(dt)
         for peep in self.peeps:
@@ -520,6 +576,8 @@ class Game:
                 # Le terrain n'est plus plat, on détruit la maison et récupère un peep
                 new_peep = Peep(house.r, house.c, self.game_map)
                 new_peep.life = house.life
+                # Donne l'arme du bâtiment détruit
+                new_peep.weapon_type = getattr(house, 'building_type', 'hut')
                 new_peeps.append(new_peep)
                 if self.view_type == 'house' and self.view_who == house:
                     self.view_who = new_peep
@@ -528,8 +586,9 @@ class Game:
                 houses_to_keep.append(house)
                 if house.can_spawn_peep():
                     new_peep = Peep(house.r, house.c, self.game_map)
+                    # Donne l'arme du bâtiment au peep qui sort
+                    new_peep.weapon_type = getattr(house, 'building_type', 'hut')
                     new_peeps.append(new_peep)
-
         self.game_map.houses = houses_to_keep
         self.peeps.extend(new_peeps)
 
@@ -542,14 +601,32 @@ class Game:
             self.view_type = None
 
     def draw(self):
+
         self.internal_surface.fill(BLACK)
         self.internal_surface.blit(self.ui_image, (0, 0))
+
+        # (Tout le rendu visuel est ici)
+        # ...existing code...
 
         # Affichage du sprite du bouton cliqué si besoin
         import time
         if self.last_button_click is not None:
             action, t0 = self.last_button_click
-            if (time.time() - t0) < 0.2:
+            show_dpad = False
+            # Clignotement si scroll continu D-Pad
+            if self.dpad_held_direction == action:
+                elapsed = time.time() - self.dpad_last_flash_time
+                if elapsed < 0.15:
+                    show_dpad = True
+                elif elapsed < self.dpad_repeat_delay:
+                    show_dpad = False
+                else:
+                    show_dpad = True  # sécurité, devrait être relancé par update()
+            else:
+                # Affichage normal (clic unique)
+                if (time.time() - t0) < self.dpad_repeat_delay:
+                    show_dpad = True
+            if show_dpad:
                 # Mapping ISO pour l'affichage du sprite du dpad
                 dpad_iso_map = {
                     'N': 'NW',
@@ -578,10 +655,22 @@ class Game:
         # Terrain
         self.game_map.draw(self.internal_surface, cam_r, cam_c)
 
+        # --- Affichage du papal (tile 5,0) en surimpression ---
+        papal_tile = self.game_map.tile_surfaces.get((5, 0))
+        if papal_tile and self.papal_position is not None:
+            r, c = self.papal_position
+            start_r, end_r, start_c, end_c = self.game_map.get_visible_bounds(cam_r, cam_c)
+            if start_r <= r < end_r and start_c <= c < end_c:
+                alt = self.game_map.get_corner_altitude(r, c)
+                sx, sy = self.game_map.world_to_screen(r, c, alt, cam_r, cam_c)
+                blit_x = sx - TILE_HALF_W
+                blit_y = sy
+                self.internal_surface.blit(papal_tile, (blit_x, blit_y))
+
         # Maisons
         self.game_map.draw_houses(self.internal_surface, cam_r, cam_c)
 
-        # Peeps
+                                # (no longer manage mouse visibility here)
         start_r, end_r, start_c, end_c = self.game_map.get_visible_bounds(cam_r, cam_c)
 
         for peep in self.peeps:
@@ -596,24 +685,21 @@ class Game:
             if start_r <= r < end_r and start_c <= c < end_c:
                 self._draw_shield_marker(self.internal_surface, self.view_who, self.view_type, cam_r, cam_c)
 
-        # Curseur sur le coin le plus proche
+        # Curseur sur le coin le plus proche (étoile limitée au terrain)
         mouse_x, mouse_y = pygame.mouse.get_pos()
         mouse_x //= self.display_scale
         mouse_y //= self.display_scale
 
+        # Affiche la petite étoile uniquement si la souris est sur le terrain
         if self.view_rect.collidepoint(mouse_x, mouse_y):
             vp_x = mouse_x - self.view_rect.x
             vp_y = mouse_y - self.view_rect.y
-            
             grid_r, grid_c = self.game_map.screen_to_nearest_corner(
                 vp_x, vp_y, cam_r, cam_c
             )
-            
-            # Afficher le pointeur uniquement s'il est dans la zone visible 8x8 de la caméra
             if start_r <= grid_r <= end_r and start_c <= grid_c <= end_c:
                 alt = self.game_map.get_corner_altitude(grid_r, grid_c)
                 px, py = self.game_map.world_to_screen(grid_r, grid_c, alt, cam_r, cam_c)
-                
                 sprites = Peep.get_sprites()
                 pointer_sprite = sprites.get((8, 11))
                 if pointer_sprite:
@@ -621,6 +707,28 @@ class Game:
                     self.internal_surface.blit(pointer_sprite, sprite_rect)
                 else:
                     pygame.draw.circle(self.internal_surface, RED, (px, py + TILE_HALF_H), 3)
+
+        # Affiche le sprite de remplacement de la souris (papal, shield, etc) partout sur l'écran
+        sprites = Peep.get_sprites()
+        mx, my = pygame.mouse.get_pos()
+        mx //= self.display_scale
+        my //= self.display_scale
+        if self.papal_mode:
+            papal_cursor = sprites.get((4, 14))
+            if papal_cursor:
+                sprite_rect = papal_cursor.get_rect(topleft=(mx, my))
+                self.internal_surface.blit(papal_cursor, sprite_rect)
+        elif self.shield_mode:
+            shield_cursor = sprites.get((8, 8))
+            if shield_cursor:
+                sprite_rect = shield_cursor.get_rect(topleft=(mx, my))
+                self.internal_surface.blit(shield_cursor, sprite_rect)
+        else:
+            # Curseur par défaut (4,12) partout
+            default_cursor = sprites.get((4, 12))
+            if default_cursor:
+                sprite_rect = default_cursor.get_rect(topleft=(mx, my))
+                self.internal_surface.blit(default_cursor, sprite_rect)
 
         self.minimap.draw(self.internal_surface, self.game_map, self.camera, self.peeps)
 
@@ -631,42 +739,44 @@ class Game:
         # Scale internal surface to display window size
         scaled_surface = pygame.transform.scale(self.internal_surface, self.screen.get_size())
         self.screen.blit(scaled_surface, (0, 0))
-        
+
+        # Affichage debug en surimpression FINALE (directement sur self.screen)
+        if self.show_debug:
+            mouse_x, mouse_y = pygame.mouse.get_pos()
+            mouse_x //= self.display_scale
+            mouse_y //= self.display_scale
+            cam_r, cam_c = self.camera.r, self.camera.c
+
+            alt_text = "N/A"
+            grid_r, grid_c = -1, -1
+            if self.view_rect.collidepoint(mouse_x, mouse_y):
+                vp_x = mouse_x - self.view_rect.x
+                vp_y = mouse_y - self.view_rect.y
+                grid_r, grid_c = self.game_map.screen_to_nearest_corner(
+                    vp_x, vp_y, cam_r, cam_c
+                )
+                alt = self.game_map.get_corner_altitude(grid_r, grid_c)
+                if alt != -1:
+                    alt_text = str(alt)
+
+            debug_texts = [
+                f"FPS: {self.clock.get_fps():.1f}",
+                f"Scale: x{self.display_scale}",
+                f"Mouse: ({mouse_x}, {mouse_y})",
+                f"Corner: ({grid_r}, {grid_c}) Alt: {alt_text}",
+                f"Camera R/C: ({cam_r:.2f}, {cam_c:.2f})",
+                f"Peeps: {len(self.peeps)}",
+                f"Houses: {len(self.game_map.houses)}"
+            ]
+            bold_font = pygame.font.SysFont("consolas", 16, bold=True)
+            for i, text in enumerate(debug_texts):
+                surf = bold_font.render(text, True, WHITE)
+                self.screen.blit(surf, (10, 10 + 18 * i))
+
         if self.show_scanlines and self.scanline_surface:
             self.screen.blit(self.scanline_surface, (0, 0))
-        
+
         pygame.display.flip()
-
-
-        mouse_y //= self.display_scale
-
-        cam_r, cam_c = self.camera.r, self.camera.c
-        
-        alt_text = "N/A"
-        grid_r, grid_c = -1, -1
-        if self.view_rect.collidepoint(mouse_x, mouse_y):
-            vp_x = mouse_x - self.view_rect.x
-            vp_y = mouse_y - self.view_rect.y
-            grid_r, grid_c = self.game_map.screen_to_nearest_corner(
-                vp_x, vp_y, cam_r, cam_c
-            )
-            alt = self.game_map.get_corner_altitude(grid_r, grid_c)
-            if alt != -1:
-                alt_text = str(alt)
-
-        debug_texts = [
-            f"FPS: {self.clock.get_fps():.1f}",
-            f"Scale: x{self.display_scale}",
-            f"Mouse: ({mouse_x}, {mouse_y})",
-            f"Corner: ({grid_r}, {grid_c}) Alt: {alt_text}",
-            f"Camera R/C: ({cam_r:.2f}, {cam_c:.2f})",
-            f"Peeps: {len(self.peeps)}",
-            f"Houses: {len(self.game_map.houses)}"
-        ]
-        for i, text in enumerate(debug_texts):
-            surf = self.font.render(text, True, WHITE)
-            self.internal_surface.blit(surf, (10, 10 + 18 * i))
-
 
 if __name__ == '__main__':
     try:

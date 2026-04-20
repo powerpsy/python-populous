@@ -4,9 +4,11 @@ Affiche chaque tile avec sa position (row, col) et ce à quoi il est mappé.
 Usage: python tile_diagnostic.py
 """
 
-import pygame
+
 import sys
 import os
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+import pygame
 from settings import *
 
 
