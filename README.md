@@ -7,16 +7,12 @@ TODO ---------------------------------------------------------------------------
 * Peep behavior case: gather
 * Peep behavior case: fight
 * Modify health bar with a border
-* Place a papal magnet case
-* Add weapon system
 * Add sound to actions/powers/combat
 * Create enemies
-* Moving in cardinal direction shall move 1 block instead of 2
 * Add a home page and game mode/password selection
 * Add a gameover page
 * Correct drowning animation (use 4 sprites)
 * Create battles
-* Add the ? option Display "shield" for information
 * Implement peeps moving system "_move_peeps" "_move_explorer" "_where_do_i_go"
 * Add trees & rocks + logic to remove
 
@@ -41,3 +37,8 @@ DONE ---------------------------------------------------------------------------
 17. Manage buildings 3: Setting up the castle
 18. take into account multi key (map scrolling in 8 directions possible)
 19. Added powers buttons + emboss when clicking
+20. Added pointer logic for various actions (terrain, papal, shield)
+21. Add the ? option Display "shield" for information
+22. Place a papal magnet case
+23. Add weapon system
+24. Moving in cardinal direction shall move 1 block instead of 2

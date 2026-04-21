@@ -655,17 +655,6 @@ class Game:
         # Terrain
         self.game_map.draw(self.internal_surface, cam_r, cam_c)
 
-        # --- Affichage du papal (tile 5,0) en surimpression ---
-        papal_tile = self.game_map.tile_surfaces.get((5, 0))
-        if papal_tile and self.papal_position is not None:
-            r, c = self.papal_position
-            start_r, end_r, start_c, end_c = self.game_map.get_visible_bounds(cam_r, cam_c)
-            if start_r <= r < end_r and start_c <= c < end_c:
-                alt = self.game_map.get_corner_altitude(r, c)
-                sx, sy = self.game_map.world_to_screen(r, c, alt, cam_r, cam_c)
-                blit_x = sx - TILE_HALF_W
-                blit_y = sy
-                self.internal_surface.blit(papal_tile, (blit_x, blit_y))
 
         # Maisons
         self.game_map.draw_houses(self.internal_surface, cam_r, cam_c)
@@ -677,6 +666,18 @@ class Game:
             if peep.y < start_r or peep.y >= end_r or peep.x < start_c or peep.x >= end_c:
                 continue
             peep.draw(self.internal_surface, cam_r, cam_c)
+
+        # --- Affichage du papal (tile 5,0) après maisons et peeps ---
+        papal_tile = self.game_map.tile_surfaces.get((5, 0))
+        if papal_tile and self.papal_position is not None:
+            r, c = self.papal_position
+            start_r, end_r, start_c, end_c = self.game_map.get_visible_bounds(cam_r, cam_c)
+            if start_r <= r < end_r and start_c <= c < end_c:
+                alt = self.game_map.get_corner_altitude(r, c)
+                sx, sy = self.game_map.world_to_screen(r, c, alt, cam_r, cam_c)
+                blit_x = sx - TILE_HALF_W
+                blit_y = sy
+                self.internal_surface.blit(papal_tile, (blit_x, blit_y))
 
         if self.view_who is not None and self.view_type is not None:
             # Vérifie si l'entité est bien dans la zone 8x8 visible de la caméra
@@ -708,29 +709,31 @@ class Game:
                 else:
                     pygame.draw.circle(self.internal_surface, RED, (px, py + TILE_HALF_H), 3)
 
-        # Affiche le sprite de remplacement de la souris (papal, shield, etc) partout sur l'écran
+
+        self.minimap.draw(self.internal_surface, self.game_map, self.camera, self.peeps)
+
+        # Curseur custom affiché partout, curseur système toujours masqué (DESSINÉ APRÈS la minimap)
         sprites = Peep.get_sprites()
         mx, my = pygame.mouse.get_pos()
-        mx //= self.display_scale
-        my //= self.display_scale
+        mx_screen = mx // self.display_scale
+        my_screen = my // self.display_scale
+        pygame.mouse.set_visible(False)
         if self.papal_mode:
             papal_cursor = sprites.get((4, 14))
             if papal_cursor:
-                sprite_rect = papal_cursor.get_rect(topleft=(mx, my))
+                sprite_rect = papal_cursor.get_rect(topleft=(mx_screen, my_screen))
                 self.internal_surface.blit(papal_cursor, sprite_rect)
         elif self.shield_mode:
             shield_cursor = sprites.get((8, 8))
             if shield_cursor:
-                sprite_rect = shield_cursor.get_rect(topleft=(mx, my))
+                sprite_rect = shield_cursor.get_rect(topleft=(mx_screen, my_screen))
                 self.internal_surface.blit(shield_cursor, sprite_rect)
         else:
             # Curseur par défaut (4,12) partout
             default_cursor = sprites.get((4, 12))
             if default_cursor:
-                sprite_rect = default_cursor.get_rect(topleft=(mx, my))
+                sprite_rect = default_cursor.get_rect(topleft=(mx_screen, my_screen))
                 self.internal_surface.blit(default_cursor, sprite_rect)
-
-        self.minimap.draw(self.internal_surface, self.game_map, self.camera, self.peeps)
 
         self._draw_shield_panel(self.internal_surface)
 
