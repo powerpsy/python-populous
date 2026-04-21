@@ -31,7 +31,11 @@ jobs:
 
       - name: Build executable
         run: |
-          pyinstaller --onefile populous.py
+          if [ "$RUNNER_OS" = "Windows" ]; then \
+            pyinstaller --onefile populous.py --add-data "data/gfx;data/gfx"; \
+          else \
+            pyinstaller --onefile populous.py --add-data "data/gfx:data/gfx"; \
+          fi
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
