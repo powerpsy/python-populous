@@ -1,4 +1,12 @@
+import sys
 import os
+
+# Gestion du dossier de base compatible PyInstaller
+if getattr(sys, 'frozen', False):
+    # Exécution via PyInstaller
+    BASE_DIR = sys._MEIPASS
+else:
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # === Écran ===
 SCREEN_WIDTH = 1280
