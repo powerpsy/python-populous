@@ -29,13 +29,13 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller
 
-      - name: Build executable
-        run: |
-          if [ "$RUNNER_OS" = "Windows" ]; then \
-            pyinstaller --onefile populous.py --add-data "data/gfx;data/gfx"; \
-          else \
-            pyinstaller --onefile populous.py --add-data "data/gfx:data/gfx"; \
-          fi
+      - name: Build executable (Windows)
+        if: matrix.os == 'windows-latest'
+        run: pyinstaller --onefile populous.py --add-data "data/gfx;data/gfx"
+
+      - name: Build executable (Linux/macOS)
+        if: matrix.os != 'windows-latest'
+        run: pyinstaller --onefile populous.py --add-data "data/gfx:data/gfx"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
