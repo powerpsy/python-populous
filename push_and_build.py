@@ -15,7 +15,7 @@ if not os.path.exists('populous.py'):
 version_tag = input("Version: ")
 commit_msg = input("Commentaire de version: ")
 
-# Ajoute tous les changements
+# Ajoute tous les changements0.
 subprocess.run(["git", "add", "."])
 
 # Commit avec le message personnalisé
