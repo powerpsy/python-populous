@@ -280,7 +280,7 @@ class GameMap:
                     
         return len(valid_tiles), valid_tiles
 
-    def draw_houses(self, surface, cam_r=0, cam_c=0):
+    def draw_houses(self, surface, cam_r=0, cam_c=0, show_debug=False, debug_font=None):
         start_r = int(cam_r)
         start_c = int(cam_c)
         end_r = min(self.grid_height, start_r + 8)
@@ -293,7 +293,7 @@ class GameMap:
         for house in sorted(self.houses, key=lambda h: h.r + h.c):
             if house.r < start_r or house.r >= end_r or house.c < start_c or house.c >= end_c:
                 continue
-                
+
             if house.building_type == 'castle':
                 from settings import CASTLE_9_TILES
                 offsets = [
@@ -313,6 +313,13 @@ class GameMap:
                 if flag_surf is not None:
                     sx, sy = self.world_to_screen(house.r, house.c, self.get_corner_altitude(house.r, house.c), cam_r, cam_c)
                     surface.blit(flag_surf, (sx, sy))
+                # Affichage debug vie château (centre)
+                if show_debug and debug_font is not None:
+                    sx, sy = self.world_to_screen(house.r, house.c, self.get_corner_altitude(house.r, house.c), cam_r, cam_c)
+                    life_text = debug_font.render(f"{int(house.life)}", True, (0,255,255))
+                    text_x = sx - life_text.get_width() // 2
+                    text_y = sy - 24
+                    surface.blit(life_text, (text_x, text_y))
                 continue
 
             alt = self.get_corner_altitude(house.r, house.c)
@@ -322,16 +329,21 @@ class GameMap:
                 continue
             sx, sy = self.world_to_screen(house.r, house.c, alt, cam_r, cam_c)
             blit_x = sx - TILE_HALF_W
-            # Le haut du tile est à blit_y
             blit_y = sy
             surface.blit(tile_surf, (blit_x, blit_y))
 
             # Drapeau d'équipe animé (sprites 4,0 et 4,1)
-            # Côté droit en iso = coin E du tile = blit_x + TILE_HALF_W
             if flag_surf is not None:
                 flag_x = blit_x + TILE_HALF_W
                 flag_y = blit_y
                 surface.blit(flag_surf, (flag_x, flag_y))
+
+            # Affichage debug vie bâtiment
+            if show_debug and debug_font is not None:
+                life_text = debug_font.render(f"{int(house.life)}", True, (0,255,255))
+                text_x = sx - life_text.get_width() // 2
+                text_y = blit_y - 24
+                surface.blit(life_text, (text_x, text_y))
 
     def _enforce_height_constraints(self):
         """Passe de lissage : garantit que tous les voisins à 8 directions diffèrent de max 1."""

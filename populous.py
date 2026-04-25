@@ -373,40 +373,64 @@ class Game:
                 blason_flag = (blason_bl[0] - 3, blason_bl[1])
                 surface.blit(flag_sprite, blason_flag)
 
-        # 4. Énergie sous forme de 2 rectangles verticaux
-        life = float(getattr(self.view_who, 'life', 0.0))
-        
-        # Barre de gauche (les centaines de vies en jaune)
-        hundreds = int(life // 100)
-        # Limite visuelle des centaines à 10 pour ne pas déborder (0 à 10)
-        max_hundreds = 10.0
-        ratio_yellow = min(1.0, max(0.0, hundreds / max_hundreds))
-        
-        # Barre de droite (les unités de vies en orange)
-        units = life % 100
-        ratio_orange = min(1.0, max(0.0, units / 99.0))
 
-        bar_w = 4
-        bar_max_h = 16
-        
-        # Fond gris pour les deux jauges
-        rect1_x = blason_br[0] + 3
-        rect2_x = blason_br[0] + 11
-        bar_bg_y = blason_br[1] + 3
-        pygame.draw.rect(surface, (102, 102, 102), (rect1_x, bar_bg_y, bar_w, bar_max_h))
-        pygame.draw.rect(surface, (102, 102, 102), (rect2_x, bar_bg_y, bar_w, bar_max_h))
-
-        # 1er rectangle : jaune (centaines)
-        bar1_h = int(bar_max_h * ratio_yellow)
-        bar1_y = bar_bg_y + (bar_max_h - bar1_h)
-        if bar1_h > 0:
-            pygame.draw.rect(surface, (255, 220, 0), (rect1_x, bar1_y, bar_w, bar1_h))
-
-        # 2ème rectangle : orange (unités)
-        bar2_h = int(bar_max_h * ratio_orange)
-        bar2_y = bar_bg_y + (bar_max_h - bar2_h)
-        if bar2_h > 0:
-            pygame.draw.rect(surface, (255, 140, 0), (rect2_x, bar2_y, bar_w, bar2_h))
+        # 4. Barres shield bâtiment : puissance (jaune) et santé (orange)
+        if self.view_type == 'house':
+            from house import House
+            building_type = getattr(self.view_who, 'building_type', 'hut')
+            try:
+                tier = House.TYPES.index(building_type)
+            except Exception:
+                tier = 0
+            # Puissance : GROWTH_SPEEDS (1 à 16)
+            power = House.GROWTH_SPEEDS[tier]
+            max_power = max(House.GROWTH_SPEEDS)
+            ratio_yellow = min(1.0, max(0.0, power / max_power))
+            # Santé : vie actuelle / vie max
+            life = float(getattr(self.view_who, 'life', 0.0))
+            max_life = float(getattr(self.view_who, 'max_life', 16.0))
+            ratio_orange = min(1.0, max(0.0, life / max_life))
+            bar_w = 4
+            bar_max_h = 16
+            rect1_x = blason_br[0] + 3
+            rect2_x = blason_br[0] + 11
+            bar_bg_y = blason_br[1] + 3
+            # Fond
+            pygame.draw.rect(surface, (102, 102, 102), (rect1_x, bar_bg_y, bar_w, bar_max_h))
+            pygame.draw.rect(surface, (102, 102, 102), (rect2_x, bar_bg_y, bar_w, bar_max_h))
+            # Barre jaune = puissance
+            bar1_h = int(bar_max_h * ratio_yellow)
+            bar1_y = bar_bg_y + (bar_max_h - bar1_h)
+            if bar1_h > 0:
+                pygame.draw.rect(surface, (255, 220, 0), (rect1_x, bar1_y, bar_w, bar1_h))
+            # Barre orange = santé
+            bar2_h = int(bar_max_h * ratio_orange)
+            bar2_y = bar_bg_y + (bar_max_h - bar2_h)
+            if bar2_h > 0:
+                pygame.draw.rect(surface, (255, 140, 0), (rect2_x, bar2_y, bar_w, bar2_h))
+        else:
+            # Affichage peep (inchangé)
+            life = float(getattr(self.view_who, 'life', 0.0))
+            hundreds = int(life // 100)
+            max_hundreds = 10.0
+            ratio_yellow = min(1.0, max(0.0, hundreds / max_hundreds))
+            units = life % 100
+            ratio_orange = min(1.0, max(0.0, units / 99.0))
+            bar_w = 4
+            bar_max_h = 16
+            rect1_x = blason_br[0] + 3
+            rect2_x = blason_br[0] + 11
+            bar_bg_y = blason_br[1] + 3
+            pygame.draw.rect(surface, (102, 102, 102), (rect1_x, bar_bg_y, bar_w, bar_max_h))
+            pygame.draw.rect(surface, (102, 102, 102), (rect2_x, bar_bg_y, bar_w, bar_max_h))
+            bar1_h = int(bar_max_h * ratio_yellow)
+            bar1_y = bar_bg_y + (bar_max_h - bar1_h)
+            if bar1_h > 0:
+                pygame.draw.rect(surface, (255, 220, 0), (rect1_x, bar1_y, bar_w, bar1_h))
+            bar2_h = int(bar_max_h * ratio_orange)
+            bar2_y = bar_bg_y + (bar_max_h - bar2_h)
+            if bar2_h > 0:
+                pygame.draw.rect(surface, (255, 140, 0), (rect2_x, bar2_y, bar_w, bar2_h))
 
     def _update_scanline_surface(self):
         w, h = self.screen.get_size()
@@ -564,6 +588,10 @@ class Game:
                 if new_house is not None and self.view_type == 'peep' and self.view_who == peep:
                     self.view_who = new_house
                     self.view_type = 'house'
+        # Ajout des peeps excédentaires générés lors de la construction
+        if hasattr(self.game_map, '_pending_peep'):
+            self.peeps.extend(self.game_map._pending_peep)
+            self.game_map._pending_peep.clear()
 
         self.peeps = [p for p in self.peeps if not p.is_removable()]
 
@@ -576,7 +604,6 @@ class Game:
                 # Le terrain n'est plus plat, on détruit la maison et récupère un peep
                 new_peep = Peep(house.r, house.c, self.game_map)
                 new_peep.life = house.life
-                # Donne l'arme du bâtiment détruit
                 new_peep.weapon_type = getattr(house, 'building_type', 'hut')
                 new_peeps.append(new_peep)
                 if self.view_type == 'house' and self.view_who == house:
@@ -588,7 +615,11 @@ class Game:
                     new_peep = Peep(house.r, house.c, self.game_map)
                     # Donne l'arme du bâtiment au peep qui sort
                     new_peep.weapon_type = getattr(house, 'building_type', 'hut')
+                    # Le peep sort avec la vie max du bâtiment
+                    new_peep.life = house.max_life
                     new_peeps.append(new_peep)
+                    # Le bâtiment retourne à 1 de vie
+                    house.life = 1.0
         self.game_map.houses = houses_to_keep
         self.peeps.extend(new_peeps)
 
@@ -657,7 +688,9 @@ class Game:
 
 
         # Maisons
-        self.game_map.draw_houses(self.internal_surface, cam_r, cam_c)
+        # Police debug pour affichage vie
+        debug_font = pygame.font.SysFont("consolas", 14, bold=True) if self.show_debug else None
+        self.game_map.draw_houses(self.internal_surface, cam_r, cam_c, show_debug=self.show_debug, debug_font=debug_font)
 
                                 # (no longer manage mouse visibility here)
         start_r, end_r, start_c, end_c = self.game_map.get_visible_bounds(cam_r, cam_c)
@@ -665,7 +698,7 @@ class Game:
         for peep in self.peeps:
             if peep.y < start_r or peep.y >= end_r or peep.x < start_c or peep.x >= end_c:
                 continue
-            peep.draw(self.internal_surface, cam_r, cam_c)
+            peep.draw(self.internal_surface, cam_r, cam_c, show_debug=self.show_debug, debug_font=debug_font)
 
         # --- Affichage du papal (tile 5,0) après maisons et peeps ---
         papal_tile = self.game_map.tile_surfaces.get((5, 0))

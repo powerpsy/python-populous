@@ -1,4 +1,8 @@
 class House:
+    # Matrice de vitesse de croissance (1 à 16 par seconde)
+    GROWTH_SPEEDS = [1, 2, 3, 4, 5, 6, 8, 10, 12, 16]
+    # Matrice de valeur max de santé pour spawn (16, 32, ..., 160)
+    MAX_HEALTHS = [16 * (i + 1) for i in range(10)]
     # Types de bâtiments par ordre de puissance
     TYPES = ['hut', 'house_small', 'house_medium', 'castle_small',
              'castle_medium', 'castle_large', 'fortress_small',
@@ -8,9 +12,7 @@ class House:
         self.r = r
         self.c = c
         self.life = float(life)
-        self.max_life = 100
-        self.spawn_timer = 0.0
-        self.spawn_interval = 10.0  # secondes entre chaque spawn
+        self.max_life = 16  # sera mis à jour dynamiquement
         self._pending_spawn = False
         self.building_type = 'hut'
         self.destroyed = False
@@ -62,23 +64,16 @@ class House:
         # Le bâtiment prend immédiatement la taille maximale disponible
         current_tier = max_tier
         
-        # Le niveau max de vie dépend de ce tier max
-        self.max_life = (max_tier + 1) * 15.0
-        
-        # La vie rejoint aussi le max pour éviter que des destructions ne laissent des peeps trop faibles
-        if self.life < self.max_life:
-            self.life += dt * 3  # La vie (l'énergie des peeps générés) continue de monter avec le temps
-        elif self.life > self.max_life:
-            self.life -= dt * 5
-
-        # Empêcher la vie de descendre sous un minimum tant qu'il a 1 bloc
-        if self.life < 10.0:
-            self.life = 10.0
-
-        self.spawn_timer += dt
-        if self.spawn_timer >= self.spawn_interval:
-            self.spawn_timer -= self.spawn_interval
+        # Nouvelle logique : croissance de la santé selon la matrice
+        growth_speed = self.GROWTH_SPEEDS[max_tier]
+        self.max_life = self.MAX_HEALTHS[max_tier]
+        self.life += dt * growth_speed
+        if self.life > self.max_life:
+            self.life = self.max_life
             self._pending_spawn = True
+        # Empêcher la vie de descendre sous 1 (jamais 0)
+        if self.life < 1.0:
+            self.life = 1.0
 
         self.building_type = self.TYPES[current_tier]
 

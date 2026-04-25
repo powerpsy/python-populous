@@ -1,20 +1,19 @@
 TODO ----------------------------------------------------------------------------------------------
 
-* Peep life is not changing on the display (shield)
-* house health bar (yellow as a function of level, increasing green as a function of peep)
-* peep health bar (orange 10, orange 1) --> (yellow,orange 10)
+* peep health bar change to 3 healthbar 100 10 1 (1 health down every s)
 * Peep behavior case: build
 * Peep behavior case: gather
 * Peep behavior case: fight
-* Modify health bar with a border
 * Add sound to actions/powers/combat
 * Create enemies
 * Add a home page and game mode/password selection
 * Add a gameover page
-* Correct drowning animation (use 4 sprites)
 * Create battles
 * Implement peeps moving system "_move_peeps" "_move_explorer" "_where_do_i_go"
 * Add trees & rocks + logic to remove
+* bug: castle drawing on terrain edges: the castle is always drawn as a full unit, even if it shall not be seen partially out of the 8x8 map
+* bug: mouse sprite is drawn behing the shield sprites. shall be the opposite.
+
 
 DONE ----------------------------------------------------------------------------------------------
 
@@ -37,8 +36,14 @@ DONE ---------------------------------------------------------------------------
 17. Manage buildings 3: Setting up the castle
 18. take into account multi key (map scrolling in 8 directions possible)
 19. Added powers buttons + emboss when clicking
+
 20. Added pointer logic for various actions (terrain, papal, shield)
 21. Add the ? option Display "shield" for information
 22. Place a papal magnet case
 23. Add weapon system
 24. Moving in cardinal direction shall move 1 block instead of 2
+25. Correct drowning animation (use 4 sprites)
+
+26. Peep life is not changing on the display (shield)
+27. house health bar (yellow as a function of level, increasing orange as a function of life)
+28. Modify health bar with a border

@@ -104,10 +104,39 @@ class Peep:
             self.death_timer += dt
             return
 
+        # Perte de vie : 1 point par seconde
+        self.life -= dt * 1.0
+        if self.life <= 0:
+            self.life = 0
+            self.dead = True
+            return
+
         self.anim_timer += dt
-        if self.anim_timer > 0.3:
-            self.anim_timer -= 0.3
-            self.anim_frame = (self.anim_frame + 1) % 2
+
+        # Détecter si le peep est sur une tile eau (les 4 coins de la tile à 0)
+        gr_cur, gc_cur = int(self.y), int(self.x)
+        if (0 <= gr_cur < self.game_map.grid_height and 0 <= gc_cur < self.game_map.grid_width):
+            a0 = self.game_map.get_corner_altitude(gr_cur,     gc_cur)
+            a1 = self.game_map.get_corner_altitude(gr_cur,     gc_cur + 1)
+            a2 = self.game_map.get_corner_altitude(gr_cur + 1, gc_cur + 1)
+            a3 = self.game_map.get_corner_altitude(gr_cur + 1, gc_cur)
+            on_water = (a0 == 0 and a1 == 0 and a2 == 0 and a3 == 0)
+        else:
+            on_water = False
+
+        # Animation :
+        if on_water:
+            # Animation loop simple sur 4 frames (5,8 à 5,11)
+            if not hasattr(self, '_drown_anim_idx'):
+                self._drown_anim_idx = 0
+            if self.anim_timer > 0.18:
+                self.anim_timer -= 0.18
+                self._drown_anim_idx = (self._drown_anim_idx + 1) % 4
+            self.anim_frame = self._drown_anim_idx
+        else:
+            if self.anim_timer > 0.3:
+                self.anim_timer -= 0.3
+                self.anim_frame = (self.anim_frame + 1) % 2
 
         # Change de direction de temps en temps
         self.dir_timer += dt
@@ -164,36 +193,58 @@ class Peep:
         else:
             self.facing = 'IDLE'
 
-        # Énergie : la barre orange se vide en 1 minute (5x plus vite sur l'eau)
-        drain_rate = 5.0 if on_water else 1.0
-        self.energy_orange -= dt * drain_rate / 60.0
-        if self.energy_orange <= 0:
-            self.energy_yellow -= 1
-            self.energy_orange = 1.0
-            if self.energy_yellow < 0:
-                self.energy_yellow = 0
-                self.energy_orange = 0
-                self.dead = True
-                return
-
         # Construction
         self.build_timer += dt
 
     def try_build_house(self):
         if self.build_timer < 5.0:
             return None
-        
+
         gr, gc = int(self.y), int(self.x)
         if self.game_map.can_place_house_initial(gr, gc):
             self.build_timer = 0.0
             from house import House
-            house = House(gr, gc)
+            # On détermine la vie max du bâtiment
+            from house import House
+            max_life = House.MAX_HEALTHS[0]  # hut par défaut
+            # On estime le type de bâtiment selon le terrain
+            score, valid_tiles = self.game_map.get_flat_area_score(gr, gc, current_house=None)
+            thresholds = [0, 1, 2, 5, 8, 11, 14, 19, 22, 24]
+            max_tier = 0
+            for i, thresh in enumerate(thresholds):
+                if score >= thresh:
+                    max_tier = i
+            max_tier = min(len(House.TYPES) - 1, max_tier)
+            max_life = House.MAX_HEALTHS[max_tier]
+
+            # Si le peep a plus de vie que la vie max du bâtiment, on génère un peep avec l'excédent
+            excess_life = self.life - max_life
+            house = House(gr, gc, life=min(self.life, max_life))
             self.game_map.add_house(house)
             self.in_house = True
+            self.life = 0
+            self.dead = True
+
+            if excess_life > 0:
+                # Cherche une case adjacente libre pour le peep excédentaire
+                offsets = [(-1,0),(1,0),(0,-1),(0,1),(-1,-1),(-1,1),(1,-1),(1,1)]
+                for dr, dc in offsets:
+                    nr, nc = gr + dr, gc + dc
+                    if 0 <= nr < self.game_map.grid_height and 0 <= nc < self.game_map.grid_width:
+                        # On vérifie que la case n'est pas de l'eau et pas déjà occupée par une maison
+                        alt = self.game_map.get_corner_altitude(nr, nc)
+                        occupied = any((nr, nc) in getattr(h, 'occupied_tiles', []) for h in self.game_map.houses)
+                        if alt > 0 and not occupied:
+                            from peep import Peep
+                            new_peep = Peep(nr, nc, self.game_map)
+                            new_peep.life = excess_life
+                            self.game_map._pending_peep = getattr(self.game_map, '_pending_peep', [])
+                            self.game_map._pending_peep.append(new_peep)
+                            break
             return house
         return None
 
-    def draw(self, surface, cam_x=0, cam_y=0):
+    def draw(self, surface, cam_x=0, cam_y=0, show_debug=False, debug_font=None):
         gr, gc = int(self.y), int(self.x)
         fx = self.x - gc  # fraction horizontale dans la tile
         fy = self.y - gr  # fraction verticale dans la tile
@@ -215,8 +266,14 @@ class Peep:
 
         sprites = self.get_sprites()
         frames = WALK_FRAMES.get(self.facing, WALK_FRAMES['IDLE'])
-        anim_len = len(WALK_FRAMES.get(self.facing, WALK_FRAMES['IDLE']))
-        frame_key = frames[self.anim_frame % anim_len]
+        if self.facing == 'DROWN':
+            # Animation pingpong sur 4 frames
+            anim_len = 4
+            # self.anim_frame est déjà l'indice pingpong (0,1,2,3,2,1...)
+            frame_key = (5, 8 + self.anim_frame)
+        else:
+            anim_len = len(frames)
+            frame_key = frames[self.anim_frame % anim_len]
         sprite = sprites.get(frame_key)
 
         if sprite is not None:
@@ -231,9 +288,20 @@ class Peep:
                 surface.blit(tinted, (blit_x, blit_y))
             else:
                 surface.blit(sprite, (blit_x, blit_y))
+            # Affichage debug de la vie
+            if show_debug and debug_font is not None:
+                life_text = debug_font.render(f"{int(self.life)}", True, (255,255,0) if not self.dead else (255,0,0))
+                text_x = sx - life_text.get_width() // 2
+                text_y = blit_y - 16
+                surface.blit(life_text, (text_x, text_y))
         else:
             # Fallback : petit cercle
             pygame.draw.circle(surface, (255, 220, 120), (sx, ground_y), 3)
+            if show_debug and debug_font is not None:
+                life_text = debug_font.render(f"{int(self.life)}", True, (255,255,0))
+                text_x = sx - life_text.get_width() // 2
+                text_y = ground_y - 24
+                surface.blit(life_text, (text_x, text_y))
 
     def is_removable(self):
         if self.in_house:
