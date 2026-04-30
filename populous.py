@@ -101,6 +101,9 @@ class Game:
         self.view_type = None
         self.scanline_surface = None
         self._update_scanline_surface()
+        # Commande peep active (par défaut _go_build)
+        self.active_peep_command = '_go_build'
+        self.active_peep_target = (self.game_map.grid_height // 2, self.game_map.grid_width // 2)
 
         # --- Initialisation des zones interactives de l'interface ---
         cx, cy = 64, 168 # Centre de base
@@ -167,7 +170,7 @@ class Game:
             '_do_swamp', 'SW', 'S', 'SE', '_do_papal', '_go_papal', '_go_build', '_go_assemble', '_go_fight'
         ]
         for idx, name in enumerate(button_order):
-            self.button_sprite_indices[name] = idx
+            self.button_sprite_indices[name] = idx 
 
     def _get_peep_sprite_rect(self, peep, cam_r, cam_c):
         gr, gc = int(peep.y), int(peep.x)
@@ -445,7 +448,9 @@ class Game:
             c = random.randint(0, GRID_WIDTH - 1)
             # Ne pas spawn sur l'eau
             if self.game_map.get_corner_altitude(r, c) > 0:
-                self.peeps.append(Peep(r, c, self.game_map))
+                peep = Peep(r, c, self.game_map)
+                peep.set_command('wander')
+                self.peeps.append(peep)
 
     def run(self):
         pygame.mouse.set_visible(False)
@@ -477,7 +482,42 @@ class Game:
             print("Mode shield activé")
             self.shield_mode = True
         else:
-            print(f"Pouvoir sélectionné (en attente d'implémentation) : {action}")
+            # Commandes de déplacement peep : activation exclusive
+            if action in ['_go_build', '_go_assemble', '_go_papal', '_go_fight']:
+                # Ne rien faire si la commande est déjà active
+                if self.active_peep_command == action and (
+                    (action != '_go_papal') or (self.active_peep_target == self.papal_position)
+                ):
+                    print(f"Commande {action} déjà active, aucune modification.")
+                    return
+                self.active_peep_command = action
+                if action == '_go_papal':
+                    self.active_peep_target = self.papal_position
+                else:
+                    self.active_peep_target = None
+                # Attribution des rôles et partenaires pour _go_assemble
+                if action == '_go_assemble':
+                    peeps = [p for p in self.peeps if not p.dead]
+                    peeps.sort(key=lambda p: id(p))
+                    for i, p in enumerate(peeps):
+                        p.assemble_role = 'receveur' if i % 2 == 0 else 'donneur'
+                        if i % 2 == 0 and i + 1 < len(peeps):
+                            p.assemble_partner = peeps[i + 1]
+                            peeps[i + 1].assemble_partner = p
+                        elif i % 2 == 1:
+                            continue
+                        else:
+                            p.assemble_partner = None
+                else:
+                    for peep in self.peeps:
+                        peep.assemble_role = None
+                        peep.assemble_partner = None
+                for peep in self.peeps:
+                    if not peep.dead:
+                        peep.set_command(self.active_peep_command, self.active_peep_target)
+                print(f"Commande {action} activée (persistante) pour tous les peeps.")
+            else:
+                print(f"Pouvoir sélectionné (en attente d'implémentation) : {action}")
 
     def events(self):
         for event in pygame.event.get():
@@ -605,6 +645,9 @@ class Game:
                 new_peep = Peep(house.r, house.c, self.game_map)
                 new_peep.life = house.life
                 new_peep.weapon_type = getattr(house, 'building_type', 'hut')
+                # Appliquer la commande peep active
+                if not new_peep.dead:
+                    new_peep.set_command(self.active_peep_command, self.active_peep_target)
                 new_peeps.append(new_peep)
                 if self.view_type == 'house' and self.view_who == house:
                     self.view_who = new_peep
@@ -617,6 +660,9 @@ class Game:
                     new_peep.weapon_type = getattr(house, 'building_type', 'hut')
                     # Le peep sort avec la vie max du bâtiment
                     new_peep.life = house.max_life
+                    # Appliquer la commande peep active
+                    if not new_peep.dead:
+                        new_peep.set_command(self.active_peep_command, self.active_peep_target)
                     new_peeps.append(new_peep)
                     # Le bâtiment retourne à 1 de vie
                     house.life = 1.0
@@ -631,68 +677,33 @@ class Game:
             self.view_who = None
             self.view_type = None
 
-    def draw(self):
 
-        self.internal_surface.fill(BLACK)
+
+    def draw(self):
+        # Nettoyage de la surface interne pour éviter les traînées : restaurer le fond AmigaUI
         self.internal_surface.blit(self.ui_image, (0, 0))
 
-        # (Tout le rendu visuel est ici)
-        # ...existing code...
-
-        # Affichage du sprite du bouton cliqué si besoin
-        import time
-        if self.last_button_click is not None:
-            action, t0 = self.last_button_click
-            show_dpad = False
-            # Clignotement si scroll continu D-Pad
-            if self.dpad_held_direction == action:
-                elapsed = time.time() - self.dpad_last_flash_time
-                if elapsed < 0.15:
-                    show_dpad = True
-                elif elapsed < self.dpad_repeat_delay:
-                    show_dpad = False
-                else:
-                    show_dpad = True  # sécurité, devrait être relancé par update()
-            else:
-                # Affichage normal (clic unique)
-                if (time.time() - t0) < self.dpad_repeat_delay:
-                    show_dpad = True
-            if show_dpad:
-                # Mapping ISO pour l'affichage du sprite du dpad
-                dpad_iso_map = {
-                    'N': 'NW',
-                    'NE': 'N',
-                    'E': 'NE',
-                    'SE': 'E',
-                    'S': 'SE',
-                    'SW': 'S',
-                    'W': 'SW',
-                    'NW': 'W',
-                }
-                action_affiche = dpad_iso_map.get(action, action)
-                idx = self.button_sprite_indices.get(action_affiche)
-                if idx is not None and idx < len(self.button_sprites):
-                    # Afficher le sprite à la position du bouton
-                    shape = self.ui_buttons.get(action)
-                    if shape:
-                        bcx, bcy = shape['c']
-                        sprite = self.button_sprites[idx]
-                        sw, sh = sprite.get_size()
-                        pos = (int(bcx - sw // 2) + 1, int(bcy - sh // 2))
-                        self.internal_surface.blit(sprite, pos)
+        # Affichage permanent du bouton actif (_go_build, _go_assemble, _go_papal, _go_fight)
+        active_btn = self.active_peep_command
+        idx = self.button_sprite_indices.get(active_btn)
+        if idx is not None and idx < len(self.button_sprites):
+            shape = self.ui_buttons.get(active_btn)
+            if shape:
+                bcx, bcy = shape['c']
+                sprite = self.button_sprites[idx]
+                sw, sh = sprite.get_size()
+                pos = (int(bcx - sw // 2) + 1, int(bcy - sh // 2))
+                self.internal_surface.blit(sprite, pos)
 
         cam_r, cam_c = self.camera.r, self.camera.c
 
         # Terrain
         self.game_map.draw(self.internal_surface, cam_r, cam_c)
 
-
         # Maisons
-        # Police debug pour affichage vie
         debug_font = pygame.font.SysFont("consolas", 14, bold=True) if self.show_debug else None
         self.game_map.draw_houses(self.internal_surface, cam_r, cam_c, show_debug=self.show_debug, debug_font=debug_font)
 
-                                # (no longer manage mouse visibility here)
         start_r, end_r, start_c, end_c = self.game_map.get_visible_bounds(cam_r, cam_c)
 
         for peep in self.peeps:
@@ -713,18 +724,15 @@ class Game:
                 self.internal_surface.blit(papal_tile, (blit_x, blit_y))
 
         if self.view_who is not None and self.view_type is not None:
-            # Vérifie si l'entité est bien dans la zone 8x8 visible de la caméra
             r = getattr(self.view_who, 'y', getattr(self.view_who, 'r', -1))
             c = getattr(self.view_who, 'x', getattr(self.view_who, 'c', -1))
             if start_r <= r < end_r and start_c <= c < end_c:
                 self._draw_shield_marker(self.internal_surface, self.view_who, self.view_type, cam_r, cam_c)
 
-        # Curseur sur le coin le plus proche (étoile limitée au terrain)
         mouse_x, mouse_y = pygame.mouse.get_pos()
         mouse_x //= self.display_scale
         mouse_y //= self.display_scale
 
-        # Affiche la petite étoile uniquement si la souris est sur le terrain
         if self.view_rect.collidepoint(mouse_x, mouse_y):
             vp_x = mouse_x - self.view_rect.x
             vp_y = mouse_y - self.view_rect.y

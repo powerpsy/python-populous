@@ -1,19 +1,18 @@
 TODO ----------------------------------------------------------------------------------------------
 
-* peep health bar change to 3 healthbar 100 10 1 (1 health down every s)
-* Peep behavior case: build
-* Peep behavior case: gather
+* Manage buildings 5: if castle can be built it "delocates" buildings around
+* Peep behavior case: gather - peeps are standing with no movement
 * Peep behavior case: fight
 * Add sound to actions/powers/combat
 * Create enemies
 * Add a home page and game mode/password selection
 * Add a gameover page
 * Create battles
-* Implement peeps moving system "_move_peeps" "_move_explorer" "_where_do_i_go"
 * Add trees & rocks + logic to remove
 * bug: castle drawing on terrain edges: the castle is always drawn as a full unit, even if it shall not be seen partially out of the 8x8 map
 * bug: mouse sprite is drawn behing the shield sprites. shall be the opposite.
-
+* building placement needs refinement: peeps should be able to place more buildings, sharing some of the terrain, up to the ability to transform into castle if enough space / ability to remove neighbours
+* Add internet multiplayer
 
 DONE ----------------------------------------------------------------------------------------------
 
@@ -47,3 +46,9 @@ DONE ---------------------------------------------------------------------------
 26. Peep life is not changing on the display (shield)
 27. house health bar (yellow as a function of level, increasing orange as a function of life)
 28. Modify health bar with a border
+29. Peep behavior _go_build
+30. Peep behavior _go_papal
+31. Implement peeps moving system "_move_peeps" "_move_explorer" "_where_do_i_go"
+
+32. Implemented randomness in movement when looking for new terrain to build
+33. reduced building distance to 1 tile between all buildings but castle (2 tiles distance)

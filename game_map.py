@@ -408,26 +408,33 @@ class GameMap:
         return offsets[: max(0, min(scan_size, len(offsets)))]
 
     def can_place_house_initial(self, r, c):
-        """Validation de pose initiale: centre plat + buffer de voisinage anti-proximité."""
+        """Validation de pose initiale: espace 1 tuile entre bâtiments, 2 pour castle."""
         if not self.is_flat_and_buildable(r, c):
             return False
 
-        # Phase initiale proche du comportement original: scan large (25 positions max).
-        for dr, dc in self._get_construction_offsets(25):
-            nr, nc = r + dr, c + dc
-            if not (0 <= nr < self.grid_height and 0 <= nc < self.grid_width):
+        # Déterminer le type de bâtiment à construire
+        from house import House
+        score, valid_tiles = self.get_flat_area_score(r, c, current_house=None)
+        thresholds = [0, 1, 2, 5, 8, 11, 14, 19, 22, 24]
+        max_tier = 0
+        for i, thresh in enumerate(thresholds):
+            if score >= thresh:
+                max_tier = i
+        max_tier = min(len(House.TYPES) - 1, max_tier)
+        building_type = House.TYPES[max_tier]
+
+        # Distance minimale
+        min_dist = 2 if building_type == 'castle' else 1
+        for h in self.houses:
+            if getattr(h, 'destroyed', False):
                 continue
-
-            # Interdit de construire si le voisinage immédiat contient déjà un centre de ville.
-            for h in self.houses:
-                if (h.r, h.c) == (nr, nc):
+            dist = abs(h.r - r) + abs(h.c - c)
+            if h.building_type == 'castle':
+                if dist < 2:
                     return False
-
-            # Interdit aussi si la case est déjà revendiquée par une ville existante.
-            for h in self.houses:
-                if (nr, nc) in getattr(h, 'occupied_tiles', []):
+            else:
+                if dist < min_dist:
                     return False
-
         return True
 
     def add_house(self, house):
