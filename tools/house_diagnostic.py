@@ -50,8 +50,8 @@ class PositioningTest:
         # On choisit un point d'ancrage
         h_r, h_c = 4, 4
 
-        # Paliers de score sur les 24 cases adjacentes
-        thresholds = [0, 1, 2, 5, 8, 11, 14, 19, 22, 24]
+        # Paliers de score basés sur la zone d'influence
+        thresholds = [0, 1, 3, 5, 7, 9, 11, 12, 14, 16]
         required_score = thresholds[self.selected_idx]
         
         # La plateforme centrale (bâtiment) est toujours construite
@@ -60,20 +60,42 @@ class PositioningTest:
         self.game_map.corners[h_r+1][h_c+1] = 2
         self.game_map.corners[h_r+1][h_c] = 2
 
-        # Ordre d'expansion du terrain (jusqu'à 24 tuiles adjacentes pour un 5x5 centré sur le bâtiment)
-        offsets = [(dr, dc) for dr in range(-2, 3) for dc in range(-2, 3) if not (dr == 0 and dc == 0)]
-        # Tri par distance du centre pour avoir une expansion concentrique naturelle
-        offsets.sort(key=lambda p: p[0]**2 + p[1]**2)
+        # Définition de la matrice d'influence 5x5 pour le diagnostic
+        influence_offsets = []
+        influence_mask = [
+            (1, 0, 1, 0, 1),
+            (0, 1, 1, 1, 0),
+            (1, 1, 0, 1, 1),
+            (0, 1, 1, 1, 0),
+            (1, 0, 1, 0, 1)
+        ]
+        for dr in range(-2, 3):
+            for dc in range(-2, 3):
+                if dr == 0 and dc == 0: continue
+                if influence_mask[dr+2][dc+2] == 1:
+                    influence_offsets.append((dr, dc))
         
-        for i in range(required_score):
-            dr, dc = offsets[i]
-            tr = h_r + dr
-            tc = h_c + dc
-            # On monte les coins à l'altitude 2 pour créer un plateau plat à cet endroit
-            self.game_map.corners[tr][tc] = 2
-            self.game_map.corners[tr][tc+1] = 2
-            self.game_map.corners[tr+1][tc+1] = 2
-            self.game_map.corners[tr+1][tc] = 2
+        # Tri par distance du centre
+        influence_offsets.sort(key=lambda p: p[0]**2 + p[1]**2)
+        
+        # Special case pour le Castle (24 cases)
+        if self.selected_idx == len(self.buildings) - 1:
+            all_offsets = [(dr, dc) for dr in range(-2, 3) for dc in range(-2, 3) if not (dr == 0 and dc == 0)]
+            for dr, dc in all_offsets:
+                tr, tc = h_r + dr, h_c + dc
+                self.game_map.corners[tr][tc] = 2
+                self.game_map.corners[tr][tc+1] = 2
+                self.game_map.corners[tr+1][tc+1] = 2
+                self.game_map.corners[tr+1][tc] = 2
+        else:
+            for i in range(min(len(influence_offsets), required_score)):
+                dr, dc = influence_offsets[i]
+                tr = h_r + dr
+                tc = h_c + dc
+                self.game_map.corners[tr][tc] = 2
+                self.game_map.corners[tr][tc+1] = 2
+                self.game_map.corners[tr+1][tc+1] = 2
+                self.game_map.corners[tr+1][tc] = 2
 
         # Ajout du bâtiment
         house = House(h_r, h_c)
@@ -150,9 +172,10 @@ class PositioningTest:
                 self.screen.blit(text, (rect.x + 5, rect.y + 5))
 
             # Instructions complémentaires
-            thresholds = [0, 1, 2, 5, 8, 11, 14, 19, 22, 24]
+            thresholds = [0, 1, 3, 5, 7, 9, 11, 12, 14, 16]
             required_score = thresholds[self.selected_idx]
-            info_text1 = self.font.render(f"Maison à (4, 4) - Alt 2 (score terrain: {required_score}/24)", True, WHITE)
+            max_score = 24 if self.selected_idx == len(self.buildings) - 1 else 16
+            info_text1 = self.font.render(f"Maison à (4, 4) - Alt 2 (score terrain: {required_score}/{max_score})", True, WHITE)
             info_text2 = self.font.render(f"Peep à (4.5, 4.5)   ", True, WHITE)
             self.screen.blit(info_text1, (250, 10))
             self.screen.blit(info_text2, (250, 30))

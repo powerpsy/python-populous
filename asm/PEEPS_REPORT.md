@@ -191,6 +191,29 @@ Faits prouves:
   (asm/populous_prg.asm:43a12..43ac8, 43b20..43bd2)
 - Appelle _place_people pour chaque spawn.
 
+### 4.8 Comportements / Modes de Deplacement (Settle, Assemble, Fight, Papal)
+Role:
+- Definit la strategie de mouvement et de selection de cible du peep. L'utilisateur (ou l'IA) bascule ces 4 modes via l'UI, ce qui ecrit dans l'offset +4 de la structure _magnet (`LAB_52DE8`).
+
+Faits prouves:
+1) Mode Settle (Aller Construire / go_build) :
+- Comportement par defaut des explorateurs sans cible explicite. (asm/populous_prg.asm:413da..41410).
+- Redirige vers `_where_do_i_go`. Le peep scanne recursivement ses alentours via `_offset_vector` jusqu'a trouver du terrain plat (map_blk == 0x0f).
+- Pas de pathfinding global, heuristique locale pour s'eloigner s'il ne peut pas construire.
+
+2) Mode Gather / Assemble / Go Papal :
+- S'assure que les peeps convergent vers un magnet ou un leader.
+- Redirige vers `_move_magnet_peeps` (asm/populous_prg.asm:419d4). 
+- Lit la position du magnet via l'offset +2 de la structure _magnet (`LAB_52DE6`) ou cible un leader defini dynamiquement dans le champ pointeur `$E,A0` du peep.
+- Oriente le peep mathematiquement vers cette coordonnee via `_get_heading` (asm/populous_prg.asm:41fea).
+- Lorsqu'un peep rencontre un allie (meme owner), la fonction `_join_forces` (asm/populous_prg.asm:420b4) incremente leur total HP.
+
+3) Mode Fight (Aller au combat) :
+- Induit par les pointeurs d'ennemis et/ou le flag `_war`.
+- Oriente les mouvements offensifs vers le `_devil_magnet` ou les peeps de la faction opposee.
+- Au contact (colocalisation sur la meme tuile, owner different), declenche `_set_battle` puis la boucle `_do_battle` (asm/populous_prg.asm:4268a).
+
+
 ## 5. Constantes et seuils numeriques (Peeps)
 - 0x00d0: cap population (place_people, scans de split). 
   - asm/populous_prg.asm:43168, 40f18.

@@ -105,6 +105,9 @@ class Peep:
         self.energy_orange = 1.0  # fraction de la barre orange courante (0→1)
         self.in_house = False
         self.weapon_type = 'hut' # Arme de départ : arme 0 (hut)
+        # Momentum pour l'exploration (direction préférée)
+        self.momentum_dir = random.choice([(0, 1), (1, 1), (1, 0), (1, -1), (0, -1), (-1, -1), (-1, 0), (-1, 1)])
+        self.momentum_steps = random.randint(3, 8)
         # Machine à états
         self.state = Peep.STATE_WANDER
         self.state_target = None  # (r, c) ou None
@@ -113,12 +116,17 @@ class Peep:
         self.tile_from = (int(self.y), int(self.x))
         self.tile_to = (int(self.y), int(self.x))
         self.move_progress = 1.0  # 1.0 = sur la tuile cible
+        # Historique des positions pour éviter les oscillations
+        self.path_history = [(int(self.y), int(self.x))] * 4
         # Pour l'assemble par paire
         self.assemble_role = None  # 'donneur', 'receveur', ou None
         self.assemble_partner = None  # référence vers le partenaire
 
     def set_command(self, command, target=None):
         """Change l'état du peep selon la commande reçue."""
+        # On réinitialise le timer de build lors d'un changement de commande pour ne pas build instantanément
+        self.build_timer = 0.0
+        
         if command == '_go_build':
             self.state = Peep.STATE_BUILD
             self.state_target = None
@@ -164,108 +172,187 @@ class Peep:
         """Choix de la prochaine tuile selon l'état du peep, avec floodfill local et retour possible sur ancienne case."""
         r0, c0 = int(self.y), int(self.x)
 
-        # Pour _go_build, chercher une tuile constructible dans un voisinage élargi
-        if self.state == Peep.STATE_ASSEMBLE:
-            # Fusion par paire : le donneur va vers son receveur
-            if self.assemble_role == 'donneur' and self.assemble_partner is not None and not self.assemble_partner.dead:
-                pr, pc = int(self.assemble_partner.y), int(self.assemble_partner.x)
-                self.state_target = (pr, pc)
-            else:
-                self.state_target = None
+        if self.state == Peep.STATE_BUILD:
+            # go_build : exploration pour trouver de nouvelles opportunités
+            directions = [(0, 1), (1, 1), (1, 0), (1, -1), (0, -1), (-1, -1), (-1, 0), (-1, 1)]
+            
+            # --- Scan local pour opportunité immédiate d'urbanisation ---
+            # Si on détecte du terrain plat VIERGE à côté, on interrompt le voyage.
+            best_local_score = -1
+            best_local_tile = None
+            
+            for dr, dc in directions:
+                nr, nc = r0 + dr, c0 + dc
+                if 0 <= nr < self.game_map.grid_height and 0 <= nc < self.game_map.grid_width:
+                    if self.game_map.get_corner_altitude(nr, nc) > 0 and (nr, nc) not in self.path_history:
+                        score, _ = self.game_map.get_flat_area_score(nr, nc, current_house=None)
+                        if score > 5: # Seuil d'intérêt : s'il y a au moins un peu de plat
+                            # Vérifier si c'est déjà trop proche d'une maison
+                            too_close = False
+                            for h in self.game_map.houses:
+                                if max(abs(h.r - nr), abs(h.c - nc)) < 3: # Distance Chebyshev
+                                    too_close = True
+                                    break
+                            if not too_close and score > best_local_score:
+                                best_local_score = score
+                                best_local_tile = (nr, nc)
+            
+            if best_local_tile:
+                # On réinitialise un momentum court vers cette opportunité
+                self.momentum_dir = (best_local_tile[0] - r0, best_local_tile[1] - c0)
+                self.momentum_steps = 2
+                return best_local_tile
+
+            valid = [(r0+dr, c0+dc) for dr, dc in directions 
+                     if 0 <= r0+dr < self.game_map.grid_height 
+                     and 0 <= c0+dc < self.game_map.grid_width 
+                     and self.game_map.get_corner_altitude(r0+dr, c0+dc) > 0]
+            
+            if not valid:
                 return (r0, c0)
 
-        # Pour _go_papal, _go_assemble, _go_fight : comportement cible (inchangé)
-        # Générer toutes les positions dans un carré 5x5 autour du peep (sauf la case centrale)
-        positions = [(dr, dc) for dr in range(-2, 3) for dc in range(-2, 3) if not (dr == 0 and dc == 0)]
-        random.shuffle(positions)
-        best_score = -float('inf')
-        best_tile = None
-        for dr, dc in positions:
-            nr, nc = r0 + dr, c0 + dc
-            if 0 <= nr < self.game_map.grid_height and 0 <= nc < self.game_map.grid_width:
-                alt = self.game_map.get_corner_altitude(nr, nc)
-                score = alt
-                if self.state_target:
-                    dist_now = math.hypot(c0 - self.state_target[1], r0 - self.state_target[0])
-                    dist_next = math.hypot(nc - self.state_target[1], nr - self.state_target[0])
-                    score += (dist_now - dist_next) * 2.0
-                if alt > 0 and score > best_score:
-                    best_score = score
-                    best_tile = (nr, nc)
-        return best_tile if best_tile is not None else (r0, c0)
+            # Gestion du momentum ( Exploration Forcée )
+            target_r, target_c = r0 + self.momentum_dir[0], c0 + self.momentum_dir[1]
+            
+            # Si le momentum nous mène vers une case valide et qu'on a encore des steps
+            if (target_r, target_c) in valid and self.momentum_steps > 0:
+                self.momentum_steps -= 1
+                return (target_r, target_c)
+            else:
+                # Changer de direction de momentum
+                # On augmente les pas du momentum pour forcer le voyage longue distance (5 à 15 pas)
+                self.momentum_steps = random.randint(5, 15)
+                
+                # On filtre l'historique récent pour éviter les oscillations
+                exploratory = [v for v in valid if v not in self.path_history]
+                
+                if not exploratory:
+                    exploratory = [v for v in valid if v != (r0, c0)] or valid
+                
+                # Biais stratégique : on combine le score de platitude avec un "sens de l'espace"
+                # On préfère aller vers des cases qui ne sont pas DÉJÀ occupées par des maisons
+                scored_exploratory = []
+                for v in exploratory:
+                    score, _ = self.game_map.get_flat_area_score(v[0], v[1], current_house=None)
+                    
+                    # Bonus d'exploration : si la case est loin des maisons existantes, on augmente le poids
+                    house_proximity_penalty = 0
+                    for h in self.game_map.houses:
+                        dist = max(abs(h.r - v[0]), abs(h.c - v[1]))
+                        if dist < 4:
+                            house_proximity_penalty += 5
+                    
+                    weight = max(1, (score + 10) - house_proximity_penalty)
+                    scored_exploratory.extend([v] * weight)
+                
+                next_tile = random.choice(scored_exploratory)
+                self.momentum_dir = (next_tile[0] - r0, next_tile[1] - c0)
+                return next_tile
 
-    def _update_state(self, dt):
-        """Met à jour l'état selon la machine à états et agit en conséquence."""
-        # Les actions ne sont évaluées que quand le peep atteint le centre de la tuile cible
-        if self.move_progress < 1.0:
-            return  # En déplacement, rien à faire
+        elif self.state in (Peep.STATE_ASSEMBLE, Peep.STATE_PAPAL, Peep.STATE_FIGHT):
+            # magnet logic
+            if self.state == Peep.STATE_ASSEMBLE and self.assemble_role == 'donneur' and self.assemble_partner and not self.assemble_partner.dead:
+                tr, tc = int(self.assemble_partner.y), int(self.assemble_partner.x)
+            elif self.state == Peep.STATE_FIGHT:
+                # magnet to enemy
+                target = None
+                min_dist = float('inf')
+                if hasattr(self.game_map, 'peeps'):
+                    for other in self.game_map.peeps:
+                        if not other.dead and other is not self:
+                            dist = math.hypot(other.x - self.x, other.y - self.y)
+                            if dist < min_dist:
+                                min_dist = dist
+                                target = (int(other.y), int(other.x))
+                tr, tc = target if target else (r0, c0)
+            else:
+                tr, tc = self.state_target if self.state_target else (r0, c0)
 
-        # _go_build : tente de construire
-        if self.state == Peep.STATE_BUILD:
-            # Tente de construire sur la tuile actuelle
-            self.try_build_house()
-            # Cherche une tuile constructible adjacente
-            self.tile_from = (int(self.y), int(self.x))
-            self.tile_to = self._choose_next_tile()
-            self.move_progress = 0.0 if self.tile_to != self.tile_from else 1.0
-        # _go_assemble : fusion
-        elif self.state == Peep.STATE_ASSEMBLE:
-            # Fusionner si un autre peep vivant est sur la même tuile (même case entière)
-            if hasattr(self.game_map, 'peeps'):
-                for other in self.game_map.peeps:
-                    if other is not self and not other.dead:
-                        # Fusion si sur la même tuile (même case entière)
-                        if int(other.x) == int(self.x) and int(other.y) == int(self.y):
-                            self.life += other.life
-                            other.life = 0
-                            other.dead = True
-                            break
-            self.tile_from = (int(self.y), int(self.x))
-            self.tile_to = self._choose_next_tile()
-            self.move_progress = 0.0 if self.tile_to != self.tile_from else 1.0
-        # _go_papal : converge vers la cible
-        elif self.state == Peep.STATE_PAPAL:
-            self.tile_from = (int(self.y), int(self.x))
-            self.tile_to = self._choose_next_tile()
-            self.move_progress = 0.0 if self.tile_to != self.tile_from else 1.0
-        # _go_fight : combat
-        elif self.state == Peep.STATE_FIGHT:
-            found_enemy = False
-            if hasattr(self.game_map, 'peeps'):
-                for other in self.game_map.peeps:
-                    if other is not self and not other.dead:
-                        if (int(other.x), int(other.y)) == (int(self.x), int(self.y)):
-                            self.life += other.life * 0.2
-                            other.life = 0
-                            other.dead = True
-                            found_enemy = True
-                            break
-            self.tile_from = (int(self.y), int(self.x))
-            self.tile_to = self._choose_next_tile()
-            self.move_progress = 0.0 if self.tile_to != self.tile_from else 1.0
-        else:
-            # En mode wander, le peep choisit une case valide au hasard parmi toutes les voisines
-            self.state_target = None
-            directions = [
-                (0, 1), (1, 1), (1, 0), (1, -1), (0, -1), (-1, -1), (-1, 0), (-1, 1)
-            ]
-            r0, c0 = int(self.y), int(self.x)
-            valid_tiles = []
+            if (tr, tc) == (r0, c0):
+                return (r0, c0)
+
+            # Move towards target minimizing distance
+            directions = [(0, 1), (1, 1), (1, 0), (1, -1), (0, -1), (-1, -1), (-1, 0), (-1, 1)]
+            best_dist = float('inf')
+            best_tile = (r0, c0)
             for dr, dc in directions:
                 nr, nc = r0 + dr, c0 + dc
                 if 0 <= nr < self.game_map.grid_height and 0 <= nc < self.game_map.grid_width:
                     alt = self.game_map.get_corner_altitude(nr, nc)
                     if alt > 0:
-                        valid_tiles.append((nr, nc))
-            if valid_tiles:
-                nr, nc = random.choice(valid_tiles)
-                self.tile_from = (r0, c0)
-                self.tile_to = (nr, nc)
-                self.move_progress = 0.0
+                        dist = math.hypot(nc - tc, nr - tr)
+                        if dist < best_dist:
+                            best_dist = dist
+                            best_tile = (nr, nc)
+            return best_tile
+
+        else:
+            # WANDER
+            directions = [(0, 1), (1, 1), (1, 0), (1, -1), (0, -1), (-1, -1), (-1, 0), (-1, 1)]
+            valid = [(r0+dr, c0+dc) for dr, dc in directions 
+                     if 0 <= r0+dr < self.game_map.grid_height 
+                     and 0 <= c0+dc < self.game_map.grid_width 
+                     and self.game_map.get_corner_altitude(r0+dr, c0+dc) > 0]
+            
+            if not valid:
+                return (r0, c0)
+
+            # Même logique de momentum en WANDER pour explorer la carte globalement
+            target_r, target_c = r0 + self.momentum_dir[0], c0 + self.momentum_dir[1]
+            if (target_r, target_c) in valid and self.momentum_steps > 0:
+                self.momentum_steps -= 1
+                return (target_r, target_c)
             else:
-                self.tile_from = (r0, c0)
-                self.tile_to = (r0, c0)
-                self.move_progress = 1.0
+                self.momentum_steps = random.randint(5, 15)
+                # On filtre l'historique récent pour forcer l'exploration
+                exploratory = [v for v in valid if v not in self.path_history]
+                if not exploratory:
+                    exploratory = [v for v in valid if v != (r0, c0)] or valid
+                
+                # En WANDER, on ignore le plat pour maximiser la dispersion
+                scored_exploratory = exploratory
+                
+                next_tile = random.choice(scored_exploratory)
+                self.momentum_dir = (next_tile[0] - r0, next_tile[1] - c0)
+                return next_tile
+
+    def _update_state(self, dt):
+        """Met à jour l'état selon la machine à états et agit en conséquence."""
+        if self.move_progress < 1.0:
+            return  # En déplacement, rien à faire
+
+        # Le mouvement est terminé (move_progress >= 1.0)
+        # On enregistre la position actuelle dans l'historique pour éviter les oscillations
+        current_pos = (int(self.y), int(self.x))
+        if not self.path_history or self.path_history[0] != current_pos:
+            self.path_history.insert(0, current_pos)
+            if len(self.path_history) > 4:
+                self.path_history.pop()
+
+        if self.state == Peep.STATE_BUILD:
+            self.try_build_house()
+        elif self.state == Peep.STATE_ASSEMBLE:
+            if hasattr(self.game_map, 'peeps'):
+                for other in self.game_map.peeps:
+                    if other is not self and not other.dead:
+                        if int(other.x) == int(self.x) and int(other.y) == int(self.y):
+                            self.life = min(0x7D00, self.life + other.life)
+                            other.life = 0
+                            other.dead = True
+                            break
+        elif self.state == Peep.STATE_FIGHT:
+            if hasattr(self.game_map, 'peeps'):
+                for other in self.game_map.peeps:
+                    if other is not self and not other.dead:
+                        if int(other.x) == int(self.x) and int(other.y) == int(self.y):
+                            self.life += other.life * 0.2
+                            other.life = 0
+                            other.dead = True
+                            break
+
+        self.tile_from = (int(self.y), int(self.x))
+        self.tile_to = self._choose_next_tile()
+        self.move_progress = 0.0 if self.tile_to != self.tile_from else 1.0
 
 
     def update(self, dt):
@@ -345,28 +432,50 @@ class Peep:
         self.build_timer += dt
 
     def try_build_house(self):
-        if self.build_timer < 5.0:
+        # On réduit le timer de build pour plus de réactivité si on est sur une bonne case
+        gr, gc = int(self.y), int(self.x)
+        score_normal, _ = self.game_map.get_flat_area_score(gr, gc, current_house=None, is_castle=False)
+        
+        # Si on est sur une case constructible, on build plus vite (2s au lieu de 5s)
+        effective_build_limit = 2.0 if score_normal >= 0 else 5.0
+        
+        if self.build_timer < effective_build_limit:
             return None
 
-        gr, gc = int(self.y), int(self.x)
-        score, valid_tiles = self.game_map.get_flat_area_score(gr, gc, current_house=None)
-        # Vérifie la présence d'une maison sur la case
+        # gr, gc = int(self.y), int(self.x) # déjà fait plus haut
+        
+        # 1. On regarde d'abord si on peut faire un Castle (besoin de la zone d'influence complète 5x5)
+        is_castle_potential, valid_tiles_castle = self.game_map.get_flat_area_score(gr, gc, current_house=None, is_castle=True)
+        # 2. On regarde pour les maisons normales (zone influence 16 cases)
+        score_normal, valid_tiles_normal = self.game_map.get_flat_area_score(gr, gc, current_house=None, is_castle=False)
+        
         house_present = any((gr, gc) in getattr(h, 'occupied_tiles', [(h.r, h.c)]) for h in self.game_map.houses)
-        # Calcul du type de bâtiment
+        
         from house import House
-        thresholds = [0, 1, 2, 5, 8, 11, 14, 19, 22, 24]
-        max_tier = 0
-        for i, thresh in enumerate(thresholds):
-            if score >= thresh:
-                max_tier = i
+        thresholds = [0, 1, 3, 5, 7, 9, 11, 12, 14, 16]
+        
+        if is_castle_potential >= 24: # Score 24 = toutes les cases du 5x5 sont valides
+            max_tier = len(House.TYPES) - 1
+            valid_tiles = valid_tiles_castle
+            score = 24
+        else:
+            max_tier = 0
+            for i, thresh in enumerate(thresholds):
+                if score_normal >= thresh:
+                    max_tier = i
+            valid_tiles = valid_tiles_normal
+            score = score_normal
+
         max_tier = min(len(House.TYPES) - 1, max_tier)
         building_type = House.TYPES[max_tier]
         # Affichage debug
-        print(f"[DEBUG] Peep({gr},{gc}) flat score={score}, valid_tiles={len(valid_tiles)}, house_present={int(house_present)}, life={int(self.life)}, BUILT '{building_type if self.game_map.can_place_house_initial(gr, gc) else ''}'")
+        # print(f"[DEBUG] Peep({gr},{gc}) flat score={score}, valid_tiles={len(valid_tiles)}, house_present={int(house_present)}, life={int(self.life)}, BUILT '{building_type if self.game_map.can_place_house_initial(gr, gc) else ''}'")
         if self.game_map.can_place_house_initial(gr, gc):
             self.build_timer = 0.0
             max_life = House.MAX_HEALTHS[max_tier]
             house = House(gr, gc, life=min(self.life, max_life))
+            # On stocke les tuiles d'influence pour l'occupation
+            house.occupied_tiles = valid_tiles
             self.game_map.add_house(house)
             self.in_house = True
             self.life = 0

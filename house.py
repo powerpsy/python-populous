@@ -1,3 +1,6 @@
+
+
+
 class House:
     # Matrice de vitesse de croissance (1 à 16 par seconde)
     GROWTH_SPEEDS = [1, 2, 3, 4, 5, 6, 8, 10, 12, 16]
@@ -19,12 +22,31 @@ class House:
         self.occupied_tiles = []
 
     def update(self, dt, game_map):
-        score, valid_tiles = game_map.get_flat_area_score(self.r, self.c, current_house=self)
-        if score == -1:
+        # On vérifie d'abord si on est un Castle (Tier 9) ou si on peut le devenir
+        # On utilise le flag is_castle=True pour voir si la zone 25 cases est plate
+        score_castle, valid_tiles_castle = game_map.get_flat_area_score(self.r, self.c, current_house=self, is_castle=True)
+        
+        # Et on regarde aussi le score normal (16 cases)
+        score_normal, valid_tiles_normal = game_map.get_flat_area_score(self.r, self.c, current_house=self, is_castle=False)
+
+        if score_normal == -1: # Case d'habitation non constructible
             self.destroyed = True
             return
 
-        # Vérifier d'abord s'il y a un conflit sur la case centrale
+        # Détermination du Tier
+        if score_castle >= 24:
+            max_tier = len(self.TYPES) - 1
+            valid_tiles = valid_tiles_castle
+        else:
+            thresholds = [0, 1, 3, 5, 7, 9, 11, 12, 14, 16]
+            max_tier = 0
+            for i, thresh in enumerate(thresholds):
+                if score_normal >= thresh:
+                    max_tier = i
+            max_tier = min(len(self.TYPES) - 2, max_tier) # Bloqué sous le Castle si zone 5x5 pas parfaite
+            valid_tiles = valid_tiles_normal
+
+        # Vérifier d'abord s'il y a un conflit sur la case centrale (déjà géré par score=-1 mais sécurité)
         center_conflict = False
         for other in game_map.houses:
             if other != self and not getattr(other, 'destroyed', False):
@@ -36,33 +58,36 @@ class House:
             self.destroyed = True
             return
 
-        # Filtrer les valid_tiles pour ignorer les cases revendiquées par n'importe quel voisin
+        # Filtrer les valid_tiles pour ignorer les cases revendiquées par n'importe quel voisin (concurrence territoriale)
         filtered_valid_tiles = []
         for t in valid_tiles:
             can_claim = True
             for other in game_map.houses:
                 if other != self and not getattr(other, 'destroyed', False):
+                    # Si l'autre est déjà là et possède la case, on ne peut pas la prendre
                     if t in getattr(other, 'occupied_tiles', []):
                         can_claim = False
                         break
             if can_claim:
                 filtered_valid_tiles.append(t)
 
-        valid_tiles = filtered_valid_tiles
-        score = len(valid_tiles)
+        self.occupied_tiles = filtered_valid_tiles
+        score = len(self.occupied_tiles)
 
-        # Paliers de score sur les 24 cases adjacentes
-        thresholds = [0, 1, 2, 5, 8, 11, 14, 19, 22, 24]
+        # Recalcul du tier après filtrage territorial
+        if max_tier == len(self.TYPES) - 1:
+            if score < 24: # On a perdu du terrain (concurrence), on descend du rang Castle
+                max_tier = len(self.TYPES) - 2
         
-        max_tier = 0
-        for i, thresh in enumerate(thresholds):
-            if score >= thresh:
-                max_tier = i
-        
-        max_tier = min(len(self.TYPES) - 1, max_tier)
-        
-        # Le bâtiment prend immédiatement la taille maximale disponible
-        current_tier = max_tier
+        if max_tier < len(self.TYPES) - 1:
+            thresholds = [0, 1, 3, 5, 7, 9, 11, 12, 14, 16]
+            max_tier = 0
+            for i, thresh in enumerate(thresholds):
+                if score >= thresh:
+                    max_tier = i
+            max_tier = min(len(self.TYPES) - 2, max_tier)
+
+        self.building_type = self.TYPES[max_tier]
         
         # Nouvelle logique : croissance de la santé selon la matrice
         growth_speed = self.GROWTH_SPEEDS[max_tier]
@@ -74,14 +99,6 @@ class House:
         # Empêcher la vie de descendre sous 1 (jamais 0)
         if self.life < 1.0:
             self.life = 1.0
-
-        self.building_type = self.TYPES[current_tier]
-
-        # Territoire réclamé correspond au niveau ACTUEL (current_tier) du bâtiment
-        required_tiles = thresholds[current_tier]
-        desired_tiles = [(self.r, self.c)] + valid_tiles[:required_tiles]
-
-        self.occupied_tiles = desired_tiles
 
     def can_spawn_peep(self):
         if self._pending_spawn:

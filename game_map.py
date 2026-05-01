@@ -251,32 +251,58 @@ class GameMap:
             for c in range(start_c, end_c):
                 self.draw_tile(surface, r, c, cam_r, cam_c)
 
-    def get_flat_area_score(self, r, c, current_house=None):
-        # Retourne la liste des tuiles planes adjacentes à (r, c) valides pour la construction
+    def get_flat_area_score(self, r, c, current_house=None, is_castle=False):
+        # Retourne le score basé sur la zone d'influence et la liste des tuiles valid_tiles
         a = self.get_corner_altitude(r, c)
         b = self.get_corner_altitude(r, c + 1)
         c_ = self.get_corner_altitude(r + 1, c + 1)
         d = self.get_corner_altitude(r + 1, c)
 
         if not (a == b == c_ == d and a > 0):
-            return -1, []  # La tuile centrale n'est plus plane
+            return -1, []
             
         base_alt = a
         valid_tiles = []
+        
+        if is_castle:
+            # Pour un château, on prend les 24 tuiles autour (carré 5x5 complet, sans le centre)
+            influence_mask = [
+                (1, 1, 1, 1, 1),
+                (1, 1, 1, 1, 1),
+                (1, 1, 0, 1, 1),
+                (1, 1, 1, 1, 1),
+                (1, 1, 1, 1, 1)
+            ]
+        else:
+            # Pour les autres, masque spécifique de 16 tuiles
+            influence_mask = [
+                (1, 0, 1, 0, 1),
+                (0, 1, 1, 1, 0),
+                (1, 1, 0, 1, 1),
+                (0, 1, 1, 1, 0),
+                (1, 0, 1, 0, 1)
+            ]
 
-        # Pour le tri par distance
-        offsets = [(dr, dc) for dr in range(-2, 3) for dc in range(-2, 3) if not (dr == 0 and dc == 0)]
-        offsets.sort(key=lambda p: p[0]**2 + p[1]**2)
-
-        for dr, dc in offsets:
-            nr, nc = r + dr, c + dc
-            if 0 <= nr < self.grid_height and 0 <= nc < self.grid_width:
-                na = self.get_corner_altitude(nr, nc)
-                nb = self.get_corner_altitude(nr, nc + 1)
-                nc_ = self.get_corner_altitude(nr + 1, nc + 1)
-                nd = self.get_corner_altitude(nr + 1, nc)
-                if na == nb == nc_ == nd == base_alt:
-                    valid_tiles.append((nr, nc))
+        # Parcours du voisinage 5x5
+        for dr in range(-2, 3):
+            for dc in range(-2, 3):
+                if dr == 0 and dc == 0:
+                    continue
+                
+                # Vérifier si la case est dans la zone d'influence (les '1')
+                if influence_mask[dr + 2][dc + 2] == 0:
+                    continue
+                
+                nr, nc = r + dr, c + dc
+                if 0 <= nr < self.grid_height and 0 <= nc < self.grid_width:
+                    na = self.get_corner_altitude(nr, nc)
+                    nb = self.get_corner_altitude(nr, nc + 1)
+                    nc_ = self.get_corner_altitude(nr + 1, nc + 1)
+                    nd = self.get_corner_altitude(nr + 1, nc)
+                    # La tuile doit être plate (coins égaux) et au-dessus de l'eau (>0)
+                    # On ne vérifie plus si l'altitude est égale à base_alt
+                    if na == nb == nc_ == nd and na > 0:
+                        valid_tiles.append((nr, nc))
                     
         return len(valid_tiles), valid_tiles
 
@@ -396,6 +422,21 @@ class GameMap:
             return True
         return False
 
+    def is_flat_and_buildable_any_alt(self, r, c):
+        """Identique à is_flat_and_buildable mais ne nécessite pas une altitude spécifique."""
+        if r < 0 or c < 0 or r >= self.grid_height or c >= self.grid_width:
+            return False
+        a = self.get_corner_altitude(r, c)
+        b = self.get_corner_altitude(r, c + 1)
+        c_ = self.get_corner_altitude(r + 1, c + 1)
+        d = self.get_corner_altitude(r + 1, c)
+        if a == b == c_ == d and a > 0:
+            for h in self.houses:
+                if (r, c) in getattr(h, 'occupied_tiles', []):
+                    return False
+            return True
+        return False
+
     def _get_construction_offsets(self, scan_size=25):
         """Offsets de voisinage discrets autour du centre, triés du plus proche au plus lointain."""
         offsets = [
@@ -412,29 +453,32 @@ class GameMap:
         if not self.is_flat_and_buildable(r, c):
             return False
 
-        # Déterminer le type de bâtiment à construire
+        # On utilise les nouvelles fonctions de scoring robustes
+        score_castle, _ = self.get_flat_area_score(r, c, is_castle=True)
+        score_normal, _ = self.get_flat_area_score(r, c, is_castle=False)
+        
         from house import House
-        score, valid_tiles = self.get_flat_area_score(r, c, current_house=None)
-        thresholds = [0, 1, 2, 5, 8, 11, 14, 19, 22, 24]
-        max_tier = 0
-        for i, thresh in enumerate(thresholds):
-            if score >= thresh:
-                max_tier = i
-        max_tier = min(len(House.TYPES) - 1, max_tier)
-        building_type = House.TYPES[max_tier]
-
-        # Distance minimale
-        min_dist = 2 if building_type == 'castle' else 1
+        if score_castle >= 24:
+            is_castle = True
+        else:
+            is_castle = False
+        
+        # Distance minimale obligatoire
+        required_dist = 2 if is_castle else 1
+        
         for h in self.houses:
             if getattr(h, 'destroyed', False):
                 continue
-            dist = abs(h.r - r) + abs(h.c - c)
-            if h.building_type == 'castle':
-                if dist < 2:
-                    return False
-            else:
-                if dist < min_dist:
-                    return False
+            
+            # Distance de Manhattan pour l'espacement
+            dist = max(abs(h.r - r), abs(h.c - c)) # Utilisation de la distance de Chebyshev pour les pavés
+            
+            # Si on veut construire un castle ou si on est près d'un castle existant
+            h_is_castle = (h.building_type == 'castle')
+            current_required = 3 if (is_castle or h_is_castle) else 2
+            
+            if dist < current_required:
+                return False
         return True
 
     def add_house(self, house):

@@ -15,7 +15,7 @@ TODO ---------------------------------------------------------------------------
 * Add internet multiplayer
 
 DONE ----------------------------------------------------------------------------------------------
-
+v0.1.0
 01. Add a game window and the ability to scroll to the edges of the terrain
 02. Add the star sprite for terrain control
 03. Manage peeps 1: Add two energy bars above (one yellow, one orange), 1 yellow pixel = one full orange bar
@@ -35,20 +35,20 @@ DONE ---------------------------------------------------------------------------
 17. Manage buildings 3: Setting up the castle
 18. take into account multi key (map scrolling in 8 directions possible)
 19. Added powers buttons + emboss when clicking
-
+v0.1.4
 20. Added pointer logic for various actions (terrain, papal, shield)
 21. Add the ? option Display "shield" for information
 22. Place a papal magnet case
 23. Add weapon system
 24. Moving in cardinal direction shall move 1 block instead of 2
 25. Correct drowning animation (use 4 sprites)
-
+v0.1.5
 26. Peep life is not changing on the display (shield)
 27. house health bar (yellow as a function of level, increasing orange as a function of life)
 28. Modify health bar with a border
 29. Peep behavior _go_build
 30. Peep behavior _go_papal
 31. Implement peeps moving system "_move_peeps" "_move_explorer" "_where_do_i_go"
-
+v0.1.6
 32. Implemented randomness in movement when looking for new terrain to build
 33. reduced building distance to 1 tile between all buildings but castle (2 tiles distance)
