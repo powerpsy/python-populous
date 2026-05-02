@@ -98,6 +98,7 @@ class Game:
         self.show_debug = True
         self.show_scanlines = False
         self.view_who = None
+        self._force_assemble_recompute = False
         self.view_type = None
         self.scanline_surface = None
         self._update_scanline_surface()
@@ -498,16 +499,24 @@ class Game:
                 # Attribution des rôles et partenaires pour _go_assemble
                 if action == '_go_assemble':
                     peeps = [p for p in self.peeps if not p.dead]
-                    peeps.sort(key=lambda p: id(p))
-                    for i, p in enumerate(peeps):
-                        p.assemble_role = 'receveur' if i % 2 == 0 else 'donneur'
-                        if i % 2 == 0 and i + 1 < len(peeps):
-                            p.assemble_partner = peeps[i + 1]
-                            peeps[i + 1].assemble_partner = p
-                        elif i % 2 == 1:
-                            continue
-                        else:
-                            p.assemble_partner = None
+                    # On apparie par proximité pour plus de réactivité
+                    import math
+                    available = set(peeps)
+                    while len(available) >= 2:
+                        p1 = available.pop()
+                        # Trouver le plus proche de p1
+                        p2 = min(available, key=lambda p: math.hypot(p.x - p1.x, p.y - p1.y))
+                        available.remove(p2)
+                        
+                        p1.assemble_role = 'receveur'
+                        p1.assemble_partner = p2
+                        p2.assemble_role = 'donneur'
+                        p2.assemble_partner = p1
+                    
+                    if available:
+                        p_last = available.pop()
+                        p_last.assemble_role = 'receveur'
+                        p_last.assemble_partner = None
                 else:
                     for peep in self.peeps:
                         peep.assemble_role = None
@@ -611,6 +620,28 @@ class Game:
 
     def update(self, dt):
         import time
+        # Recalcul de l'assemblage si nécessaire (ex: après spawn d'un peep)
+        if getattr(self, '_force_assemble_recompute', False) and self.active_peep_command == '_go_assemble':
+            self._force_assemble_recompute = False
+            # On réutilise la logique de _go_assemble par proximité
+            import math
+            peeps = [p for p in self.peeps if not p.dead]
+            available = set(peeps)
+            while len(available) >= 2:
+                p1 = available.pop()
+                p2 = min(available, key=lambda p: math.hypot(p.x - p1.x, p.y - p1.y))
+                available.remove(p2)
+                p1.assemble_role, p1.assemble_partner = 'receveur', p2
+                p2.assemble_role, p2.assemble_partner = 'donneur', p1
+            if available:
+                p_last = available.pop()
+                p_last.assemble_role, p_last.assemble_partner = 'receveur', None
+            
+            # Mettre à jour les commandes des nouveaux peeps
+            for peep in self.peeps:
+                if not peep.dead:
+                    peep.set_command(self.active_peep_command, self.active_peep_target)
+
         # Scroll continu D-Pad UI
         if self.dpad_held_direction:
             self.dpad_held_timer -= dt
@@ -664,6 +695,11 @@ class Game:
                     if not new_peep.dead:
                         new_peep.set_command(self.active_peep_command, self.active_peep_target)
                     new_peeps.append(new_peep)
+
+                    # Si on est en mode ASSEMBLE, on force le recalcul des paires pour inclure le nouveau
+                    if self.active_peep_command == '_go_assemble':
+                        self._force_assemble_recompute = True
+
                     # Le bâtiment retourne à 1 de vie
                     house.life = 1.0
         self.game_map.houses = houses_to_keep

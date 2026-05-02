@@ -33,23 +33,24 @@ class House:
             self.destroyed = True
             return
 
-        # Détermination du Tier
+        # Détermination du Tier potentiel (avant filtrage territorial)
         if score_castle >= 24:
-            max_tier = len(self.TYPES) - 1
-            valid_tiles = valid_tiles_castle
+            potential_tier = len(self.TYPES) - 1
+            potential_valid_tiles = valid_tiles_castle
         else:
             thresholds = [0, 1, 3, 5, 7, 9, 11, 12, 14, 16]
-            max_tier = 0
+            potential_tier = 0
             for i, thresh in enumerate(thresholds):
                 if score_normal >= thresh:
-                    max_tier = i
-            max_tier = min(len(self.TYPES) - 2, max_tier) # Bloqué sous le Castle si zone 5x5 pas parfaite
-            valid_tiles = valid_tiles_normal
+                    potential_tier = i
+            potential_tier = min(len(self.TYPES) - 2, potential_tier) # Bloqué sous le Castle si zone 5x5 pas parfaite
+            potential_valid_tiles = valid_tiles_normal
 
         # Vérifier d'abord s'il y a un conflit sur la case centrale (déjà géré par score=-1 mais sécurité)
         center_conflict = False
         for other in game_map.houses:
             if other != self and not getattr(other, 'destroyed', False):
+                # Si l'autre existe déjà physiquement (pas juste planifié) et possède la case
                 if (self.r, self.c) in getattr(other, 'occupied_tiles', []):
                     center_conflict = True
                     break
@@ -58,28 +59,48 @@ class House:
             self.destroyed = True
             return
 
-        # Filtrer les valid_tiles pour ignorer les cases revendiquées par n'importe quel voisin (concurrence territoriale)
+        # Filtrer les potential_valid_tiles pour ignorer les cases revendiquées par n'importe quel voisin (concurrence territoriale)
         filtered_valid_tiles = []
-        for t in valid_tiles:
+        for t in potential_valid_tiles:
             can_claim = True
             for other in game_map.houses:
                 if other != self and not getattr(other, 'destroyed', False):
-                    # Si l'autre est déjà là et possède la case, on ne peut pas la prendre
+                    # RÈGLE DE PRIORITÉ : L'ancien bâtiment (déjà présent sur la map)
+                    # a la priorité absolue sur ses tuiles.
+                    # Un nouveau bâtiment ne peut JAMAIS voler une tuile déjà possédée par un autre.
                     if t in getattr(other, 'occupied_tiles', []):
                         can_claim = False
                         break
             if can_claim:
                 filtered_valid_tiles.append(t)
 
-        self.occupied_tiles = filtered_valid_tiles
+        # PROTECTION DES CHÂTEAUX : Si on est un bâtiment existant et qu'on était un château,
+        # on ne met à jour nos tuiles QUE si le terrain change (plus de cases valides théoriques).
+        # On ne doit pas réduire notre territoire juste parce qu'un nouveau voisin essaie de le revendiquer.
+        if self.building_type == 'castle' and potential_tier == len(self.TYPES) - 1:
+            # On ne change rien à nos tuiles occupées si le terrain environnant est toujours plat
+            # Cela empêche l'effet de "tremblote" ou de réduction lors de la construction d'un voisin.
+            pass
+        else:
+            self.occupied_tiles = filtered_valid_tiles
+        
         score = len(self.occupied_tiles)
+
+        # Application du Tier final basé sur le terrain réel occupé
+        max_tier = potential_tier
 
         # Recalcul du tier après filtrage territorial
         if max_tier == len(self.TYPES) - 1:
-            if score < 24: # On a perdu du terrain (concurrence), on descend du rang Castle
+            # Un Castle une fois établi ne devrait pas être réduit par la simple proximité 
+            # d'un nouveau bâtiment.
+            # On ne dégrade le Castle que si son terrain est physiquement détruit (altitude)
+            # ou si le score chute drastiquement sous un seuil critique (ex: 20 tuiles),
+            # mais pas à cause d'une maison qui s'installe à la limite de sa zone d'influence.
+            if score < 20: 
                 max_tier = len(self.TYPES) - 2
         
-        if max_tier < len(self.TYPES) - 1:
+        # Pour les bâtiments non-Castle, le tier peut fluctuer selon l'espace disponible
+        elif max_tier < len(self.TYPES) - 1:
             thresholds = [0, 1, 3, 5, 7, 9, 11, 12, 14, 16]
             max_tier = 0
             for i, thresh in enumerate(thresholds):

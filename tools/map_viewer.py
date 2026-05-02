@@ -1,5 +1,10 @@
 import pygame
 import sys
+import os
+
+# Ajouter le répertoire parent au sys.path pour trouver game_map et settings
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from game_map import GameMap
 import settings
 

@@ -63,6 +63,7 @@ WALK_FRAMES = {
     'W':      [(0, 12), (0, 13)],
     'NW':     [(0, 14), (0, 15)],
     'IDLE':   [(0,  8), (0,  9)],
+    'WAIT':   [(6,  0), (6,  1)],
     'DROWN':  [(5,  8), (5,  9), (5, 10), (5, 11)],
 }
 
@@ -203,10 +204,14 @@ class Peep:
                 self.momentum_steps = 2
                 return best_local_tile
 
-            valid = [(r0+dr, c0+dc) for dr, dc in directions 
-                     if 0 <= r0+dr < self.game_map.grid_height 
-                     and 0 <= c0+dc < self.game_map.grid_width 
-                     and self.game_map.get_corner_altitude(r0+dr, c0+dc) > 0]
+            # Filtrage des cases valides
+            valid = []
+            for dr, dc in directions:
+                nr, nc = r0 + dr, c0 + dc
+                if 0 <= nr < self.game_map.grid_height and 0 <= nc < self.game_map.grid_width:
+                    alt = self.game_map.get_corner_altitude(nr, nc)
+                    if alt > 0:
+                        valid.append((nr, nc))
             
             if not valid:
                 return (r0, c0)
@@ -251,7 +256,12 @@ class Peep:
 
         elif self.state in (Peep.STATE_ASSEMBLE, Peep.STATE_PAPAL, Peep.STATE_FIGHT):
             # magnet logic
-            if self.state == Peep.STATE_ASSEMBLE and self.assemble_role == 'donneur' and self.assemble_partner and not self.assemble_partner.dead:
+            if self.state == Peep.STATE_ASSEMBLE and self.assemble_partner and not self.assemble_partner.dead:
+                # Si on est le RECEVEUR, on s'arrête pour attendre le DONNEUR
+                if self.assemble_role == 'receveur':
+                    return (r0, c0)
+                
+                # Sinon on est le DONNEUR, on se dirige vers le partenaire.
                 tr, tc = int(self.assemble_partner.y), int(self.assemble_partner.x)
             elif self.state == Peep.STATE_FIGHT:
                 # magnet to enemy
@@ -272,6 +282,32 @@ class Peep:
                 return (r0, c0)
 
             # Move towards target minimizing distance
+            # PRIORITÉ : Si on est déjà à côté de la cible en mode ASSEMBLE, on y va directement
+            # pour éviter les oscillations de pathfinding sur les diagonales.
+            if self.state == Peep.STATE_ASSEMBLE:
+                # EN ASSEMBLE, on doit pouvoir marcher sur les tuiles occupées
+                # par les maisons pour permettre la fusion physique.
+                # Si le partenaire est sur une case adjacente, on y va tout droit.
+                if abs(tr - r0) <= 1 and abs(tc - c0) <= 1:
+                    return (tr, tc)
+
+                # Sinon, recherche de la meilleure direction (plus proche de la cible)
+                directions = [(0, 1), (1, 1), (1, 0), (1, -1), (0, -1), (-1, -1), (-1, 0), (-1, 1)]
+                best_dist = float('inf')
+                best_tile = (r0, c0)
+                for dr, dc in directions:
+                    nr, nc = r0 + dr, c0 + dc
+                    if 0 <= nr < self.game_map.grid_height and 0 <= nc < self.game_map.grid_width:
+                        # En ASSEMBLE, on ignore les maisons (mais pas le vide/eau)
+                        alt = self.game_map.get_corner_altitude(nr, nc)
+                        if alt > 0:
+                            dist = math.hypot(nc - tc, nr - tr)
+                            if dist < best_dist:
+                                best_dist = dist
+                                best_tile = (nr, nc)
+                return best_tile
+
+            # Logique pour les autres modes (FIGHT, PAPAL) qui doivent peut-être encore éviter les maisons
             directions = [(0, 1), (1, 1), (1, 0), (1, -1), (0, -1), (-1, -1), (-1, 0), (-1, 1)]
             best_dist = float('inf')
             best_tile = (r0, c0)
@@ -279,7 +315,7 @@ class Peep:
                 nr, nc = r0 + dr, c0 + dc
                 if 0 <= nr < self.game_map.grid_height and 0 <= nc < self.game_map.grid_width:
                     alt = self.game_map.get_corner_altitude(nr, nc)
-                    if alt > 0:
+                    if alt > 0 and self.game_map.house_collision[nr][nc] == 0:
                         dist = math.hypot(nc - tc, nr - tr)
                         if dist < best_dist:
                             best_dist = dist
@@ -329,18 +365,30 @@ class Peep:
             if len(self.path_history) > 4:
                 self.path_history.pop()
 
-        if self.state == Peep.STATE_BUILD:
-            self.try_build_house()
         elif self.state == Peep.STATE_ASSEMBLE:
-            if hasattr(self.game_map, 'peeps'):
-                for other in self.game_map.peeps:
-                    if other is not self and not other.dead:
-                        if int(other.x) == int(self.x) and int(other.y) == int(self.y):
-                            self.life = min(0x7D00, self.life + other.life)
-                            other.life = 0
-                            other.dead = True
-                            break
-        elif self.state == Peep.STATE_FIGHT:
+            if self.assemble_partner and not self.assemble_partner.dead:
+                # Si on est très proches, on fusionne immédiatement
+                # On utilise la distance euclidienne car on veut une capture "au vol"
+                dist = math.hypot(self.assemble_partner.x - self.x, self.assemble_partner.y - self.y)
+                
+                # Tolérance augmentée à 0.6 pour que la fusion se produise dès que les sprites se touchent
+                if dist < 0.6:
+                    # Le donneur fusionne dans le receveur
+                    if self.assemble_role == 'donneur':
+                        self.assemble_partner.life = min(0x7D00, self.assemble_partner.life + self.life)
+                        self.life = 0
+                        self.dead = True
+                        # Si le partenaire était aussi donneur (cas rare de réassignation), on force le rôle
+                        self.assemble_partner.assemble_role = 'receveur'
+                        return 
+                else:
+                    # Si on est encore loin, on continue à se diriger vers lui
+                    pass
+            else:
+                # Partenaire perdu ou mort, on repasse en WANDER
+                self.state = Peep.STATE_WANDER
+                self.assemble_partner = None
+                self.assemble_role = None
             if hasattr(self.game_map, 'peeps'):
                 for other in self.game_map.peeps:
                     if other is not self and not other.dead:
@@ -426,7 +474,10 @@ class Peep:
             dirs = ['E', 'SE', 'S', 'SW', 'W', 'NW', 'N', 'NE']
             self.facing = dirs[int((angle + 22.5) / 45) % 8]
         else:
-            self.facing = 'IDLE'
+            if self.state == Peep.STATE_ASSEMBLE and self.assemble_role == 'receveur':
+                self.facing = 'WAIT'
+            else:
+                self.facing = 'IDLE'
 
         # Construction
         self.build_timer += dt
@@ -474,8 +525,14 @@ class Peep:
             self.build_timer = 0.0
             max_life = House.MAX_HEALTHS[max_tier]
             house = House(gr, gc, life=min(self.life, max_life))
-            # On stocke les tuiles d'influence pour l'occupation
+            
+            # Correction BUG : On initialise le building_type AVANT de l'ajouter à la map
+            # car l'ajout déclenche parfois des vérifications de voisinage
+            house.building_type = building_type
+            # On initialise les tuiles d'influence immédiatement pour éviter que les voisins
+            # ne voient une liste vide au premier tick
             house.occupied_tiles = valid_tiles
+            
             self.game_map.add_house(house)
             self.in_house = True
             self.life = 0

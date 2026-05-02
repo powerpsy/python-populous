@@ -1,54 +1,63 @@
-TODO ----------------------------------------------------------------------------------------------
+# Python Populous
 
-* Manage buildings 5: if castle can be built it "delocates" buildings around
-* Peep behavior case: gather - peeps are standing with no movement
-* Peep behavior case: fight
-* Add sound to actions/powers/combat
-* Create enemies
-* Add a home page and game mode/password selection
-* Add a gameover page
-* Create battles
-* Add trees & rocks + logic to remove
-* bug: castle drawing on terrain edges: the castle is always drawn as a full unit, even if it shall not be seen partially out of the 8x8 map
-* bug: mouse sprite is drawn behing the shield sprites. shall be the opposite.
-* building placement needs refinement: peeps should be able to place more buildings, sharing some of the terrain, up to the ability to transform into castle if enough space / ability to remove neighbours
-* Add internet multiplayer
+A **Populous** (Amiga) clone developed in Python using Pygame. This project aims to recreate the core mechanics of the original game: terrain manipulation, colony building, and divine management of "Peeps".
 
-DONE ----------------------------------------------------------------------------------------------
-v0.1.0
-01. Add a game window and the ability to scroll to the edges of the terrain
-02. Add the star sprite for terrain control
-03. Manage peeps 1: Add two energy bars above (one yellow, one orange), 1 yellow pixel = one full orange bar
-04. Manage peeps 2: Correct peep animations in each direction
-05. Correct edge effect: Add dirt to the edges of the terrain: avoid black (flat surfaces can be stacked to fill black spaces)
-06. Manage buildings 5: Display buildings in the background first
-07. Use AmigaSprites
-08. Use the AmigaUI
-09. Rework the mechanism for displaying the map above the background
-10. Refactor the map and height control
-11. Adjust mouse movement and the Isometric transformation (distance detection)
-12. Manage buildings 1: Demolish a building if the terrain is not flat.
-13. Manage buildings 4: Each building has a population growth rate. A list of population output frequencies and energy growth rates is required.
-14. Manage buildings 2: Evaluate if there is sufficient space for a building.
-15. Create a minimap
-16. Relocate screen using minimap
-17. Manage buildings 3: Setting up the castle
-18. take into account multi key (map scrolling in 8 directions possible)
-19. Added powers buttons + emboss when clicking
-v0.1.4
-20. Added pointer logic for various actions (terrain, papal, shield)
-21. Add the ? option Display "shield" for information
-22. Place a papal magnet case
-23. Add weapon system
-24. Moving in cardinal direction shall move 1 block instead of 2
-25. Correct drowning animation (use 4 sprites)
-v0.1.5
-26. Peep life is not changing on the display (shield)
-27. house health bar (yellow as a function of level, increasing orange as a function of life)
-28. Modify health bar with a border
-29. Peep behavior _go_build
-30. Peep behavior _go_papal
-31. Implement peeps moving system "_move_peeps" "_move_explorer" "_where_do_i_go"
-v0.1.6
-32. Implemented randomness in movement when looking for new terrain to build
-33. reduced building distance to 1 tile between all buildings but castle (2 tiles distance)
+## 🚀 Current Features
+
+- **Isometric engine**: Faithful rendering to the Amiga aesthetic.
+- **Terrain manipulation**: Raise or lower the ground to create buildable areas.
+- **Construction logic**: Peeps automatically build huts, houses, or castles based on terrain flatness.
+- **Peep behaviour**: Wandering, building, and fusion behaviors to increase their strength.
+- **Divine Commands**
+    Go assemble Merge your Peeps to create stronger units
+    Go Build    Encourage colonization
+    Go Papal    Go to papal
+    Go Fight    look for fight against foes **not implemented yet**
+- **Divine Powers**
+    Mountain    **not implemented yet**
+    Quake       **not implemented yet**
+    Swamps      **not implemented yet**
+    Flood       **not implemented yet**
+    War         **not implemented yet**
+    Knight      **not implemented yet**
+
+## 🛠️ Installation
+
+1. install Python 3.10+
+2. Install dependencies:
+    ```bash
+    pip install -r requirements.txt
+    ```
+
+## 🎮 How to Play
+
+Launch the game:
+    ```bash
+    python populous.py
+    ```
+
+- **Left Click**: Raise terrain.
+- **Right Click**: Lower terrain.
+- **UI Buttons**: Use the icons on the right to switch modes (Build, Fusion, etc.).
+- **F1**    remove peeps in the map
+- **F2**    remove buildings in the map
+- **F3**    generate new random map
+- **F4**    level all terrain to height 1
+- **F12**   scanline display
+- **§**     DEBUG messages and display
+- **TAB**   zoom x1 x2 x3 x4
+
+## 🧰 Diagnostic Tools
+
+The `tools/` folder contains several utility scripts:
+- `map_viewer.py`: Map visualizer at different scales.
+- `sprite_diagnostic.py`: Spritesheet analyzer.
+- `house_diagnostic.py`: Terrain detection algorithm tester for houses.
+
+## 📝 Architecture
+
+The project follows a strict separation between game logic and rendering:
+- `game_map.py`: Grid and altitude management.
+- `peep.py`: AI and unit lifecycle.
+- `house.py`: Territory logic and building evolution.
+- `populous.py`: Main loop and input handling.

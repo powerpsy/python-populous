@@ -464,21 +464,29 @@ class GameMap:
             is_castle = False
         
         # Distance minimale obligatoire
-        required_dist = 2 if is_castle else 1
-        
+        # dist est la distance de Chebyshev (max(abs(dr), abs(dc)))
         for h in self.houses:
             if getattr(h, 'destroyed', False):
                 continue
             
-            # Distance de Manhattan pour l'espacement
-            dist = max(abs(h.r - r), abs(h.c - c)) # Utilisation de la distance de Chebyshev pour les pavés
-            
-            # Si on veut construire un castle ou si on est près d'un castle existant
+            dist = max(abs(h.r - r), abs(h.c - c))
             h_is_castle = (h.building_type == 'castle')
-            current_required = 3 if (is_castle or h_is_castle) else 2
+
+            # Un castle (centre r,c) influence un carré 5x5 (r-2..r+2, c-2..c+2).
+            # Pour qu'un nouveau bâtiment ne vole AUCUNE case à un château existant,
+            # il doit être à une distance de Chebyshev >= 3.
+            # Cependant, l'utilisateur demande explicitement :
+            # 1. Aucun bâtiment à moins de 3 cases du centre d'un château (donc dist >= 4).
+            # 2. Deux châteaux ne peuvent pas être à moins de 4 cases (car ils se voleraient des tuiles mutuellement).
             
-            if dist < current_required:
-                return False
+            if h_is_castle or is_castle:
+                # Si l'un des deux est un château, distance de sécurité accrue
+                if dist < 4:
+                    return False
+            else:
+                # Entre deux maisons normales, distance de 2 (une case vide)
+                if dist < 2:
+                    return False
         return True
 
     def add_house(self, house):
