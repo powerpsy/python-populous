@@ -185,7 +185,9 @@ class GameMap:
         if tile == TILE_FLAT:
             for h in self.houses:
                 if (r, c) in getattr(h, 'occupied_tiles', []):
-                    return TILE_CONSTRUCTED
+                    if getattr(h, 'team', 'allies') == 'foes':
+                        return TILE_CONSTRUCTED_FOES
+                    return TILE_CONSTRUCTED_ALLIES
         return tile
 
     def draw_tile(self, surface, r, c, cam_r=0, cam_c=0):
@@ -204,7 +206,7 @@ class GameMap:
         # Le tile doit être positionné pour que le sommet haut du losange soit centré horizontalement
         sx, sy = self.world_to_screen(r, c, min_alt, cam_r, cam_c)
         blit_x = sx - TILE_HALF_W
-        if tile_key == TILE_FLAT or tile_key == TILE_CONSTRUCTED:
+        if tile_key in (TILE_FLAT, TILE_CONSTRUCTED_ALLIES, TILE_CONSTRUCTED_FOES):
             blit_y = sy + TILE_HALF_H  # Décale de 8 pixels vers le bas pour les tiles plates
         else:
             blit_y = sy
@@ -314,11 +316,16 @@ class GameMap:
 
         from peep import Peep
         peep_sprites = Peep.get_sprites()
-        flag_surf = peep_sprites.get((4, self.flag_frame))
 
         for house in sorted(self.houses, key=lambda h: h.r + h.c):
             if house.r < start_r or house.r >= end_r or house.c < start_c or house.c >= end_c:
                 continue
+            
+            # Sélection du drapeau d'équipe (Allies 4.0/4.1, Foes 4.2/4.3)
+            if getattr(house, 'team', 'allies') == 'foes':
+                flag_surf = peep_sprites.get((4, 2 + self.flag_frame))
+            else:
+                flag_surf = peep_sprites.get((4, self.flag_frame))
 
             if house.building_type == 'castle':
                 from settings import CASTLE_9_TILES
@@ -342,7 +349,9 @@ class GameMap:
                 # Affichage debug vie château (centre)
                 if show_debug and debug_font is not None:
                     sx, sy = self.world_to_screen(house.r, house.c, self.get_corner_altitude(house.r, house.c), cam_r, cam_c)
-                    life_text = debug_font.render(f"{int(house.life)}", True, (0,255,255))
+                    # Bleu (0,255,255) pour alliés, Violet (255,0,255) pour foes
+                    color = (255, 0, 255) if getattr(house, 'team', 'allies') == 'foes' else (0, 255, 255)
+                    life_text = debug_font.render(f"{int(house.life)}", True, color)
                     text_x = sx - life_text.get_width() // 2
                     text_y = sy - 24
                     surface.blit(life_text, (text_x, text_y))
@@ -366,7 +375,9 @@ class GameMap:
 
             # Affichage debug vie bâtiment
             if show_debug and debug_font is not None:
-                life_text = debug_font.render(f"{int(house.life)}", True, (0,255,255))
+                # Bleu (0,255,255) pour alliés, Violet (255,0,255) pour foes
+                color = (255, 0, 255) if getattr(house, 'team', 'allies') == 'foes' else (0, 255, 255)
+                life_text = debug_font.render(f"{int(house.life)}", True, color)
                 text_x = sx - life_text.get_width() // 2
                 text_y = blit_y - 24
                 surface.blit(life_text, (text_x, text_y))

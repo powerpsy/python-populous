@@ -1,5 +1,6 @@
 import pygame
 import random
+import math
 import os
 from settings import *
 from game_map import GameMap
@@ -192,8 +193,22 @@ class Game:
         sx, sy = self.game_map.world_to_screen(peep.y, peep.x, alt, cam_r, cam_c)
         ground_y = sy + TILE_HALF_H
         sprites = Peep.get_sprites()
-        from peep import PEEP_WALK_FRAMES
-        anim = PEEP_WALK_FRAMES.get(peep.facing, PEEP_WALK_FRAMES['IDLE'])
+        from peep import PEEP_WALK_FRAMES, FOE_WALK_FRAMES
+        
+        if getattr(peep, 'team', 'allies') == 'foes':
+             anim = FOE_WALK_FRAMES.get(peep.facing, FOE_WALK_FRAMES['IDLE'])
+        else:
+             anim = PEEP_WALK_FRAMES.get(peep.facing, PEEP_WALK_FRAMES['IDLE'])
+        
+        # Gestion des états spéciaux pour le rectangle de collision UI
+        from peep import BATTLE_FRAMES, VICTORY_ALLIE_BEFORE, VICTORY_ALLIE_MAIN, VICTORY_FOE_BEFORE, VICTORY_FOE_MAIN
+        if peep.state == 'battle':
+            anim = BATTLE_FRAMES
+        elif peep.state == 'victory_before':
+            anim = VICTORY_FOE_BEFORE if peep.team == 'foes' else VICTORY_ALLIE_BEFORE
+        elif peep.state == 'victory_main':
+            anim = VICTORY_FOE_MAIN if peep.team == 'foes' else VICTORY_ALLIE_MAIN
+             
         key = anim[peep.anim_frame % len(anim)]
         sprite = sprites.get(key)
         if sprite is None:
@@ -419,13 +434,24 @@ class Game:
             pygame.draw.line(self.scanline_surface, (0, 0, 0, 100), (0, y), (w, y), 1)
 
     def spawn_initial_peeps(self, count):
-        for _ in range(count):
+        # Spawn initial d'allies (bleus)
+        for _ in range(count // 2):
             r = random.randint(0, GRID_HEIGHT - 1)
             c = random.randint(0, GRID_WIDTH - 1)
             # Ne pas spawn sur l'eau
             if self.game_map.get_corner_altitude(r, c) > 0:
-                peep = Peep(r, c, self.game_map)
-                peep.set_command('wander')
+                peep = Peep(r, c, self.game_map, team='allies')
+                peep.set_command('_go_build')
+                self.peeps.append(peep)
+
+        # Spawn initial de foes (rouges)
+        for _ in range(count // 2):
+            r = random.randint(0, GRID_HEIGHT - 1)
+            c = random.randint(0, GRID_WIDTH - 1)
+            # Ne pas spawn sur l'eau
+            if self.game_map.get_corner_altitude(r, c) > 0:
+                peep = Peep(r, c, self.game_map, team='foes')
+                peep.set_command('_go_build')
                 self.peeps.append(peep)
 
     def run(self):
@@ -491,7 +517,6 @@ class Game:
                 if action == '_go_assemble':
                     peeps = [p for p in self.peeps if not p.dead]
                     # On apparie par proximité pour plus de réactivité
-                    import math
                     available = set(peeps)
                     while len(available) >= 2:
                         p1 = available.pop()
@@ -615,7 +640,8 @@ class Game:
                 self.dpad_held_direction = None
 
     def _spawn_peep_from_house(self, house, transfer_shield=True):
-        new_peep = Peep(house.r, house.c, self.game_map)
+        team = getattr(house, 'team', 'allies')
+        new_peep = Peep(house.r, house.c, self.game_map, team=team)
         new_peep.weapon_type = getattr(house, 'building_type', 'hut')
         new_peep.life = house.max_life
         
@@ -640,7 +666,6 @@ class Game:
         if getattr(self, '_force_assemble_recompute', False) and self.active_peep_command == '_go_assemble':
             self._force_assemble_recompute = False
             # On réutilise la logique de _go_assemble par proximité
-            import math
             peeps = [p for p in self.peeps if not p.dead]
             available = set(peeps)
             while len(available) >= 2:
@@ -667,6 +692,24 @@ class Game:
                 self.dpad_last_flash_time = time.time()
 
         self.camera.update(dt)
+
+        # Appairage de combat (magnet, comme go_assemble) - fait ici car on a accès à self.peeps
+        COMBAT_STATES = ('battle', 'wait_for_enemy', 'charge_enemy', 'victory_before', 'victory_main')
+        allies_free = [p for p in self.peeps if not p.dead and p.team == 'allies' and p.state not in COMBAT_STATES]
+        foes_free   = [p for p in self.peeps if not p.dead and p.team == 'foes'   and p.state not in COMBAT_STATES]
+        for a in allies_free:
+            if not foes_free:
+                break
+            closest_foe = min(foes_free, key=lambda f: math.hypot(f.x - a.x, f.y - a.y))
+            dist = math.hypot(closest_foe.x - a.x, closest_foe.y - a.y)
+            if dist < 4.0:
+                a.state = 'charge_enemy'
+                a.battle_partner = closest_foe
+                closest_foe.state = 'wait_for_enemy'
+                closest_foe.battle_partner = a
+                closest_foe.move_progress = 1.0
+                foes_free.remove(closest_foe)
+
         self.game_map.update(dt)
         for peep in self.peeps:
             peep_had_shield = getattr(peep, 'has_shield', False)

@@ -11,10 +11,11 @@ class House:
              'castle_medium', 'castle_large', 'fortress_small',
              'fortress_medium', 'fortress_large', 'castle']
 
-    def __init__(self, r, c, life=10):
+    def __init__(self, r, c, life=10, team='allies'):
         self.r = r
         self.c = c
         self.life = float(life)
+        self.team = team
         self.max_life = 16  # sera mis à jour dynamiquement
         self._pending_spawn = False
         self.building_type = 'hut'

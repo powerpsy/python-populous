@@ -67,6 +67,29 @@ WALK_FRAMES = {
     'DROWN':  [(5,  8), (5,  9), (5, 10), (5, 11)],
 }
 
+# directions: (1,0) à (1,15)
+# drowning: (5,12) à (5,15)
+# waiting: (6,2) et (6,3)
+FOE_WALK_FRAMES = {
+    'N':      [(1,  0), (1,  1)],
+    'NE':     [(1,  2), (1,  3)],
+    'E':      [(1,  4), (1,  5)],
+    'SE':     [(1,  6), (1,  7)],
+    'S':      [(1,  8), (1,  9)],
+    'SW':     [(1, 10), (1, 11)],
+    'W':      [(1, 12), (1, 13)],
+    'NW':     [(1, 14), (1, 15)],
+    'IDLE':   [(1,  8), (1,  9)],
+    'WAIT':   [(6,  2), (6,  3)],
+    'DROWN':  [(5, 12), (5, 13), (5, 14), (5, 15)],
+}
+
+BATTLE_FRAMES = [(4, 4), (4, 5), (4, 6), (4, 7)]
+VICTORY_ALLIE_BEFORE = [(0, 8), (0, 9)] # Petite animation sur place 0.2s
+VICTORY_ALLIE_MAIN = [(5, 0), (5, 1), (5, 2), (5, 3)] # Anim victoire 0.5s
+VICTORY_FOE_BEFORE = [(1, 8), (1, 9)]
+VICTORY_FOE_MAIN = [(5, 4), (5, 5), (5, 6), (5, 7)]
+
 # Export pour usage externe
 PEEP_WALK_FRAMES = WALK_FRAMES
 
@@ -86,11 +109,17 @@ class Peep:
     STATE_ASSEMBLE = 'assemble'
     STATE_PAPAL = 'papal'
     STATE_FIGHT = 'fight'
+    STATE_WAIT_FOR_ENEMY = 'wait_for_enemy'
+    STATE_CHARGE_ENEMY = 'charge_enemy'
+    STATE_BATTLE = 'battle'
+    STATE_VICTORY_BEFORE = 'victory_before'
+    STATE_VICTORY_MAIN = 'victory_main'
 
-    def __init__(self, grid_r, grid_c, game_map):
+    def __init__(self, grid_r, grid_c, game_map, team='allies'):
         self.x = grid_c + 0.5
         self.y = grid_r + 0.5
         self.game_map = game_map
+        self.team = team
         self.life = 50
         self.dead = False
         self.death_timer = 0.0
@@ -123,6 +152,7 @@ class Peep:
         self.assemble_role = None  # 'donneur', 'receveur', ou None
         self.assemble_partner = None  # référence vers le partenaire
         self.has_shield = False
+        self.battle_partner = None
 
     def set_command(self, command, target=None):
         """Change l'état du peep selon la commande reçue."""
@@ -139,7 +169,7 @@ class Peep:
             self.state_target = target
             # Attribution des rôles par paire (doit être fait sur tous les peeps)
             if hasattr(self.game_map, 'peeps'):
-                peeps = [p for p in self.game_map.peeps if not p.dead]
+                peeps = [p for p in self.game_map.peeps if not p.dead and p.team == self.team]
                 peeps.sort(key=lambda p: id(p))
                 for i, p in enumerate(peeps):
                     p.assemble_role = 'receveur' if i % 2 == 0 else 'donneur'
@@ -163,6 +193,25 @@ class Peep:
             self.state_target = target
             self.assemble_role = None
             self.assemble_partner = None
+            # Logique d'appairage pour le combat (similaire à assemble)
+            if hasattr(self.game_map, 'peeps'):
+                # On cherche les ennemis
+                foes = [p for p in self.game_map.peeps if not p.dead and p.team != self.team]
+                allies = [p for p in self.game_map.peeps if not p.dead and p.team == self.team]
+                
+                # On apparie chaque allié à l'ennemi le plus proche
+                for a in allies:
+                    if not foes: break
+                    # Trouver le plus proche
+                    target_foe = min(foes, key=lambda f: math.hypot(f.x - a.x, f.y - a.y))
+                    a.battle_partner = target_foe
+                    a.state = Peep.STATE_CHARGE_ENEMY
+                    
+                    # L'ennemi ciblé s'arrête pour attendre
+                    if target_foe.state not in (Peep.STATE_BATTLE, Peep.STATE_VICTORY_BEFORE, Peep.STATE_VICTORY_MAIN):
+                        target_foe.state = Peep.STATE_WAIT_FOR_ENEMY
+                        target_foe.battle_partner = a
+                        target_foe.move_progress = 1.0
         else:
             self.state = Peep.STATE_WANDER
             self.state_target = None
@@ -179,6 +228,7 @@ class Peep:
             directions = [(0, 1), (1, 1), (1, 0), (1, -1), (0, -1), (-1, -1), (-1, 0), (-1, 1)]
             
             # --- Scan local pour opportunité immédiate d'urbanisation ---
+            # Si on détecte du terrain plat VIERGE à côté, on interrompt le voyage.
             # Si on détecte du terrain plat VIERGE à côté, on interrompt le voyage.
             best_local_score = -1
             best_local_tile = None
@@ -255,9 +305,14 @@ class Peep:
                 self.momentum_dir = (next_tile[0] - r0, next_tile[1] - c0)
                 return next_tile
 
-        elif self.state in (Peep.STATE_ASSEMBLE, Peep.STATE_PAPAL, Peep.STATE_FIGHT):
+        elif self.state in (Peep.STATE_ASSEMBLE, Peep.STATE_PAPAL, Peep.STATE_FIGHT, Peep.STATE_CHARGE_ENEMY, Peep.STATE_WAIT_FOR_ENEMY):
             # magnet logic
-            if self.state == Peep.STATE_ASSEMBLE and self.assemble_partner and not self.assemble_partner.dead:
+            if self.state == Peep.STATE_WAIT_FOR_ENEMY:
+                return (r0, c0)
+
+            if self.state == Peep.STATE_CHARGE_ENEMY and self.battle_partner:
+                tr, tc = int(self.battle_partner.y), int(self.battle_partner.x)
+            elif self.state == Peep.STATE_ASSEMBLE and self.assemble_partner and not self.assemble_partner.dead:
                 # Si on est le RECEVEUR, on s'arrête pour attendre le DONNEUR
                 if self.assemble_role == 'receveur':
                     return (r0, c0)
@@ -283,14 +338,14 @@ class Peep:
                 return (r0, c0)
 
             # Move towards target minimizing distance
-            # PRIORITÉ : Si on est déjà à côté de la cible en mode ASSEMBLE, on y va directement
-            # pour éviter les oscillations de pathfinding sur les diagonales.
-            if self.state == Peep.STATE_ASSEMBLE:
-                # EN ASSEMBLE, on doit pouvoir marcher sur les tuiles occupées
-                # par les maisons pour permettre la fusion physique.
-                # Si le partenaire est sur une case adjacente, on y va tout droit.
-                if abs(tr - r0) <= 1 and abs(tc - c0) <= 1:
-                    return (tr, tc)
+        # PRIORITÉ : Si on est déjà à côté de la cible en mode ASSEMBLE ou CHARGE, on y va directement
+        # pour éviter les oscillations de pathfinding sur les diagonales.
+        if self.state in (Peep.STATE_ASSEMBLE, Peep.STATE_CHARGE_ENEMY):
+            # EN ASSEMBLE ou CHARGE, on doit pouvoir marcher sur les tuiles occupées
+            # par les maisons pour permettre la fusion physique ou le combat.
+            # Si le partenaire est sur une case adjacente, on y va tout droit.
+            if abs(tr - r0) <= 1 and abs(tc - c0) <= 1:
+                return (tr, tc)
 
                 # Sinon, recherche de la meilleure direction (plus proche de la cible)
                 directions = [(0, 1), (1, 1), (1, 0), (1, -1), (0, -1), (-1, -1), (-1, 0), (-1, 1)]
@@ -316,7 +371,7 @@ class Peep:
                 nr, nc = r0 + dr, c0 + dc
                 if 0 <= nr < self.game_map.grid_height and 0 <= nc < self.game_map.grid_width:
                     alt = self.game_map.get_corner_altitude(nr, nc)
-                    if alt > 0 and self.game_map.house_collision[nr][nc] == 0:
+                    if alt > 0:
                         dist = math.hypot(nc - tc, nr - tr)
                         if dist < best_dist:
                             best_dist = dist
@@ -358,6 +413,46 @@ class Peep:
         """Met à jour l'état selon la machine à états et agit en conséquence."""
         if self.move_progress < 1.0:
             return  # En déplacement, rien à faire
+
+        # Gestion des états de bataille et victoire
+        if self.state == Peep.STATE_BATTLE:
+            self.state_timer += dt
+            # Diminution rapide de la santé
+            # On perd par exemple 50 points de vie par seconde en bataille
+            self.life -= dt * 50.0
+            
+            # Vérifier si la bataille est finie
+            if self.life <= 0:
+                self.life = 0
+                self.dead = True
+                if self.battle_partner and not self.battle_partner.dead:
+                    # Le partenaire gagne
+                    self.battle_partner.state = Peep.STATE_VICTORY_BEFORE
+                    self.battle_partner.state_timer = 0.0
+                return
+
+            if self.battle_partner and (self.battle_partner.dead or self.battle_partner.in_house):
+                # Le partenaire est mort ou a disparu, on gagne
+                self.state = Peep.STATE_VICTORY_BEFORE
+                self.state_timer = 0.0
+                return
+            return # En bataille, on ne fait rien d'autre
+
+        elif self.state == Peep.STATE_VICTORY_BEFORE:
+            self.state_timer += dt
+            if self.state_timer >= 0.2:
+                self.state = Peep.STATE_VICTORY_MAIN
+                self.state_timer = 0.0
+            return
+
+        elif self.state == Peep.STATE_VICTORY_MAIN:
+            self.state_timer += dt
+            if self.state_timer >= 0.5:
+                # Retour au wander après la victoire
+                self.state = Peep.STATE_WANDER
+                self.state_timer = 0.0
+                self.battle_partner = None
+            return
 
         # Le mouvement est terminé (move_progress >= 1.0)
         # On enregistre la position actuelle dans l'historique pour éviter les oscillations
@@ -414,6 +509,21 @@ class Peep:
         if self.dead:
             self.death_timer += dt
             return
+
+        # Vérification du contact de combat (déclenché depuis populous.py)
+        if self.state == Peep.STATE_CHARGE_ENEMY:
+            if self.battle_partner and not self.battle_partner.dead:
+                dist = math.hypot(self.battle_partner.x - self.x, self.battle_partner.y - self.y)
+                if dist < 0.6:
+                    self.state = Peep.STATE_BATTLE
+                    self.state_timer = 0.0
+                    self.move_progress = 1.0
+                    self.battle_partner.state = Peep.STATE_BATTLE
+                    self.battle_partner.state_timer = 0.0
+                    self.battle_partner.move_progress = 1.0
+            else:
+                self.state = Peep.STATE_WANDER
+                self.battle_partner = None
 
         # Détecter si le peep est sur une tile eau (les 4 coins de la tile à 0)
         gr_cur, gc_cur = int(self.y), int(self.x)
@@ -475,6 +585,22 @@ class Peep:
                 self.anim_timer -= 0.18
                 self._drown_anim_idx = (self._drown_anim_idx + 1) % 4
             self.anim_frame = self._drown_anim_idx
+        elif self.state == Peep.STATE_BATTLE:
+            if self.anim_timer > 0.1:
+                self.anim_timer -= 0.1
+                self.anim_frame = (self.anim_frame + 1) % 4
+        elif self.state == Peep.STATE_VICTORY_BEFORE:
+            if self.anim_timer > 0.1:
+                self.anim_timer -= 0.1
+                self.anim_frame = (self.anim_frame + 1) % 2
+        elif self.state == Peep.STATE_VICTORY_MAIN:
+            if self.anim_timer > 0.125: # 0.5s / 4 frames
+                self.anim_timer -= 0.125
+                self.anim_frame = (self.anim_frame + 1) % 4
+        elif self.state == Peep.STATE_WAIT_FOR_ENEMY:
+            if self.anim_timer > 0.3:
+                self.anim_timer -= 0.3
+                self.anim_frame = (self.anim_frame + 1) % 2
         else:
             if self.anim_timer > 0.3:
                 self.anim_timer -= 0.3
@@ -545,7 +671,7 @@ class Peep:
         if self.game_map.can_place_house_initial(gr, gc):
             self.build_timer = 0.0
             max_life = House.MAX_HEALTHS[max_tier]
-            house = House(gr, gc, life=min(self.life, max_life))
+            house = House(gr, gc, life=min(self.life, max_life), team=self.team)
             
             # Correction BUG : On initialise le building_type AVANT de l'ajouter à la map
             # car l'ajout déclenche parfois des vérifications de voisinage
@@ -576,7 +702,7 @@ class Peep:
                         occupied = any((nr, nc) in getattr(h, 'occupied_tiles', []) for h in self.game_map.houses)
                         if alt > 0 and not occupied:
                             from peep import Peep
-                            new_peep = Peep(nr, nc, self.game_map)
+                            new_peep = Peep(nr, nc, self.game_map, team=self.team)
                             new_peep.life = excess_life
                             self.game_map._pending_peep = getattr(self.game_map, '_pending_peep', [])
                             self.game_map._pending_peep.append(new_peep)
@@ -605,15 +731,40 @@ class Peep:
         ground_y = sy + TILE_HALF_H
 
         sprites = self.get_sprites()
-        frames = WALK_FRAMES.get(self.facing, WALK_FRAMES['IDLE'])
+        
+        # Sélection du set d'animations selon l'équipe
+        if self.team == 'foes':
+             frames_set = FOE_WALK_FRAMES
+             victory_before = VICTORY_FOE_BEFORE
+             victory_main = VICTORY_FOE_MAIN
+        else:
+             frames_set = WALK_FRAMES
+             victory_before = VICTORY_ALLIE_BEFORE
+             victory_main = VICTORY_ALLIE_MAIN
+
+        if self.state == Peep.STATE_BATTLE:
+            # Pour la bataille, seul l'allié affiche l'animation globale
+            if self.team == 'allies':
+                frames = BATTLE_FRAMES
+            else:
+                return # Le foe est caché car fusionné dans le sprite de l'allié
+        elif self.state == Peep.STATE_VICTORY_BEFORE:
+            frames = victory_before
+        elif self.state == Peep.STATE_VICTORY_MAIN:
+            frames = victory_main
+        elif self.state == Peep.STATE_WAIT_FOR_ENEMY:
+            frames = frames_set['WAIT']
+        else:
+            frames = frames_set.get(self.facing, frames_set['IDLE'])
+        
         if self.facing == 'DROWN':
-            # Animation pingpong sur 4 frames
-            anim_len = 4
-            # self.anim_frame est déjà l'indice pingpong (0,1,2,3,2,1...)
-            frame_key = (5, 8 + self.anim_frame)
+            # Animation sur les frames DROWN spécifiées dans le dictionnaire
+            anim_len = len(frames)
+            frame_key = frames[self.anim_frame % anim_len]
         else:
             anim_len = len(frames)
             frame_key = frames[self.anim_frame % anim_len]
+            
         sprite = sprites.get(frame_key)
 
         if sprite is not None:
@@ -630,7 +781,10 @@ class Peep:
                 surface.blit(sprite, (blit_x, blit_y))
             # Affichage debug de la vie
             if show_debug and debug_font is not None:
-                life_text = debug_font.render(f"{int(self.life)}", True, (255,255,0) if not self.dead else (255,0,0))
+                # Jaune (255,255,0) pour alliés, Rouge (255,0,0) pour foes
+                # On ignore l'ancien fallback rouge pour les morts ici car la demande est basée sur la couleur d'équipe
+                color = (255, 0, 0) if self.team == 'foes' else (255, 255, 0)
+                life_text = debug_font.render(f"{int(self.life)}", True, color)
                 text_x = sx - life_text.get_width() // 2
                 text_y = blit_y - 16
                 surface.blit(life_text, (text_x, text_y))
@@ -638,7 +792,8 @@ class Peep:
             # Fallback : petit cercle
             pygame.draw.circle(surface, (255, 220, 120), (sx, ground_y), 3)
             if show_debug and debug_font is not None:
-                life_text = debug_font.render(f"{int(self.life)}", True, (255,255,0))
+                color = (255, 0, 0) if self.team == 'foes' else (255, 255, 0)
+                life_text = debug_font.render(f"{int(self.life)}", True, color)
                 text_x = sx - life_text.get_width() // 2
                 text_y = ground_y - 24
                 surface.blit(life_text, (text_x, text_y))

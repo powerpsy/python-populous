@@ -1,16 +1,17 @@
 TODO ----------------------------------------------------------------------------------------------
 
-* v2 Create foes
 * v2 Create god foe (the computer plays the game against you)
 * v2 Peep behavior case: fight
 * v3 Add sound to actions/powers/combat
 * v4 Add a home page and game mode/password selection
 * v4 Add a gameover page
-* v2 Create battles
+* v2 update battle outcome with weapon + ramdomness
 * v5 Add trees & rocks + logic to remove
 * bug: castle drawing on terrain edges: the castle is always drawn as a full unit, even if it shall not be seen partially out of the 8x8 map
 * bug: mouse sprite is drawn behing the shield sprites. shall be the opposite.
 * v9 Add internet multiplayer
+* bug: buildings distance needs to be reviewed + some new buildings diminish existing buildings
+* bug review peeps movement (all together the same direction)
 
 DONE ----------------------------------------------------------------------------------------------
 v0.1.0
@@ -63,3 +64,7 @@ v0.1.9
 41. Added the <find_papal> function
 42. Added the <find_shield> function
 43. Drowning peeps were able to move when drowning (actually they were swimming !) now they stay in place.
+v0.2.0
+44. Create foes
+45. Update minimap with allies/foes colours
+46. Create battles

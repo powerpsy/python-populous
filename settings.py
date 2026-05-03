@@ -79,7 +79,8 @@ SLOPE_TILES = {
 TILE_WATER = (0, 0)
 TILE_WATER_2 = (1, 7)       # 2e frame d'animation de l'eau
 TILE_FLAT = (1, 6)
-TILE_CONSTRUCTED = (3, 4)
+TILE_CONSTRUCTED_ALLIES = (3, 4)
+TILE_CONSTRUCTED_FOES = (3, 5)
 
 # Tiles pentes pour altitude basse (= 1, juste au-dessus de l'eau)
 # Même ordre de deltas que SLOPE_TILES, de (1,8) à (3,3)

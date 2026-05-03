@@ -51,22 +51,30 @@ class Minimap:
                 # Dessiner le pixel (___pixel)
                 surface.set_at((px, py), color)
 
-        # Dessiner les maisons (blanc clignotant, disparait/transparent sinon)
+        # Dessiner les maisons (Allies: Blanc, Foes: Gris sombre #666666)
         if blink:
             for house in game_map.houses:
                 r, c = house.r, house.c
                 px = self.x + c + 64 - r
                 py = self.y + (c + r) // 2
-                surface.set_at((px, py), WHITE)
+                
+                # Couleur selon l'équipe : Blanc pour alliés, #666666 pour foes
+                team = getattr(house, 'team', 'allies')
+                color = WHITE if team == 'allies' else (102, 102, 102)
+                surface.set_at((px, py), color)
 
-        # Dessiner les peeps (bleu clignotant)
+        # Dessiner les peeps (Allies: Bleu, Foes: Rouge)
         if blink:
             for peep in peeps:
                 r_int, c_int = int(peep.y), int(peep.x)
                 if 0 <= r_int < GRID_HEIGHT and 0 <= c_int < GRID_WIDTH:
                     px = self.x + c_int + 64 - r_int
                     py = self.y + (c_int + r_int) // 2
-                    surface.set_at((px, py), BLUE)
+                    
+                    # Couleur selon l'équipe
+                    team = getattr(peep, 'team', 'allies')
+                    color = BLUE if team == 'allies' else RED
+                    surface.set_at((px, py), color)
 
         # Dessiner le losange / focus de la caméra (vue de 8x8 tuiles)
         r_cam = int(camera.r)
