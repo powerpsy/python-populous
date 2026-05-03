@@ -20,6 +20,7 @@ class House:
         self.building_type = 'hut'
         self.destroyed = False
         self.occupied_tiles = []
+        self.has_shield = False
 
     def update(self, dt, game_map):
         # On vérifie d'abord si on est un Castle (Tier 9) ou si on peut le devenir
@@ -94,9 +95,9 @@ class House:
             # Un Castle une fois établi ne devrait pas être réduit par la simple proximité 
             # d'un nouveau bâtiment.
             # On ne dégrade le Castle que si son terrain est physiquement détruit (altitude)
-            # ou si le score chute drastiquement sous un seuil critique (ex: 20 tuiles),
+            # ou si le score chute drastiquement sous un seuil critique (ex: 24 tuiles),
             # mais pas à cause d'une maison qui s'installe à la limite de sa zone d'influence.
-            if score < 20: 
+            if score < 24: 
                 max_tier = len(self.TYPES) - 2
         
         # Pour les bâtiments non-Castle, le tier peut fluctuer selon l'espace disponible

@@ -122,6 +122,7 @@ class Peep:
         # Pour l'assemble par paire
         self.assemble_role = None  # 'donneur', 'receveur', ou None
         self.assemble_partner = None  # référence vers le partenaire
+        self.has_shield = False
 
     def set_command(self, command, target=None):
         """Change l'état du peep selon la commande reçue."""
@@ -323,7 +324,7 @@ class Peep:
             return best_tile
 
         else:
-            # WANDER
+            # WANDER (Promenade)
             directions = [(0, 1), (1, 1), (1, 0), (1, -1), (0, -1), (-1, -1), (-1, 0), (-1, 1)]
             valid = [(r0+dr, c0+dc) for dr, dc in directions 
                      if 0 <= r0+dr < self.game_map.grid_height 
@@ -333,22 +334,23 @@ class Peep:
             if not valid:
                 return (r0, c0)
 
+            # En WANDER ou BUILD, on autorise la traversée des zones d'influence
+            # pour éviter que les peeps ne soient piégés et puissent coloniser plus loin.
+            candidates = valid
+
             # Même logique de momentum en WANDER pour explorer la carte globalement
             target_r, target_c = r0 + self.momentum_dir[0], c0 + self.momentum_dir[1]
-            if (target_r, target_c) in valid and self.momentum_steps > 0:
+            if (target_r, target_c) in candidates and self.momentum_steps > 0:
                 self.momentum_steps -= 1
                 return (target_r, target_c)
             else:
                 self.momentum_steps = random.randint(5, 15)
                 # On filtre l'historique récent pour forcer l'exploration
-                exploratory = [v for v in valid if v not in self.path_history]
+                exploratory = [v for v in candidates if v not in self.path_history]
                 if not exploratory:
-                    exploratory = [v for v in valid if v != (r0, c0)] or valid
+                    exploratory = [v for v in candidates if v != (r0, c0)] or candidates
                 
-                # En WANDER, on ignore le plat pour maximiser la dispersion
-                scored_exploratory = exploratory
-                
-                next_tile = random.choice(scored_exploratory)
+                next_tile = random.choice(exploratory)
                 self.momentum_dir = (next_tile[0] - r0, next_tile[1] - c0)
                 return next_tile
 
@@ -376,6 +378,10 @@ class Peep:
                     # Le donneur fusionne dans le receveur
                     if self.assemble_role == 'donneur':
                         self.assemble_partner.life = min(0x7D00, self.assemble_partner.life + self.life)
+                        # Transfert du shield au receveur si l'un des deux l'avait
+                        if self.has_shield or getattr(self.assemble_partner, 'has_shield', False):
+                            self.assemble_partner.has_shield = True
+                            self.has_shield = False # UNICITÉ : le donneur perd son shield
                         self.life = 0
                         self.dead = True
                         # Si le partenaire était aussi donneur (cas rare de réassignation), on force le rôle
@@ -409,8 +415,19 @@ class Peep:
             self.death_timer += dt
             return
 
-        # Perte de vie : 1 point par seconde
-        self.life -= dt * 1.0
+        # Détecter si le peep est sur une tile eau (les 4 coins de la tile à 0)
+        gr_cur, gc_cur = int(self.y), int(self.x)
+        if (0 <= gr_cur < self.game_map.grid_height and 0 <= gc_cur < self.game_map.grid_width):
+            a0 = self.game_map.get_corner_altitude(gr_cur,     gc_cur)
+            a1 = self.game_map.get_corner_altitude(gr_cur,     gc_cur + 1)
+            a2 = self.game_map.get_corner_altitude(gr_cur + 1, gc_cur + 1)
+            a3 = self.game_map.get_corner_altitude(gr_cur + 1, gc_cur)
+            on_water = (a0 == 0 and a1 == 0 and a2 == 0 and a3 == 0)
+        else:
+            on_water = False
+
+        # Perte de vie : 1 point par seconde (plus rapide dans l'eau ?)
+        self.life -= dt * (2.0 if on_water else 1.0)
         if self.life <= 0:
             self.life = 0
             self.dead = True
@@ -419,7 +436,11 @@ class Peep:
         self.anim_timer += dt
 
         # Mouvement tuile à tuile
-        if self.move_progress < 1.0:
+        if on_water:
+            # Si on coule, on ne bouge plus et on annule tout mouvement en cours
+            self.move_progress = 1.0
+            self.tile_to = self.tile_from = (gr_cur, gc_cur)
+        elif self.move_progress < 1.0:
             speed = PEEP_SPEED * dt / 64.0
             self.move_progress += speed
             if self.move_progress >= 1.0:
@@ -535,6 +556,13 @@ class Peep:
             
             self.game_map.add_house(house)
             self.in_house = True
+            
+            # Transfert du shield au bâtiment si le peep l'avait
+            if self.has_shield:
+                # Nous n'avons pas accès direct à game_state ici pour changer shield_target,
+                # mais le flag has_shield sur le peep servira d'indicateur pour populous.py
+                pass
+
             self.life = 0
             self.dead = True
             # Si le peep a plus de vie que la vie max du bâtiment, on génère un peep avec l'excédent

@@ -28,11 +28,21 @@ class Camera:
     def move(self, dr, dc):
         self.r += float(dr)
         self.c += float(dc)
+        self._clip()
+
+    def _clip(self):
         # Limites strictes basées sur la grille
         max_r = float(settings.GRID_HEIGHT - 8)
         max_c = float(settings.GRID_WIDTH - 8)
         self.r = max(0.0, min(self.r, max_r))
         self.c = max(0.0, min(self.c, max_c))
+
+    def center_on(self, r, c):
+        """Centre la caméra sur les coordonnées de grille r, c (entiers)."""
+        # Utilisation de int() pour s'assurer que la caméra est centrée sur la case de la map
+        self.r = float(int(r) - 4)
+        self.c = float(int(c) - 4)
+        self._clip()
 
     def update(self, dt):
         keys = pygame.key.get_pressed()

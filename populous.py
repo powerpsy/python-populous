@@ -148,6 +148,9 @@ class Game:
             '_battle_over':   {'c': (cx - dx*2, cy - dy*4), 'hw': hw, 'hh': hh}, # b OK
         }
 
+        # Commande par défaut au lancement
+        self._handle_ui_click('_go_build', held=False)
+
         # --- Initialisation des sprites de boutons ---
         self.button_sprite_indices = {}
         self.button_sprites = []
@@ -312,129 +315,101 @@ class Game:
         y = rect.top - shield_sprite.get_height() - 2 + 23
         surface.blit(shield_sprite, (x, y))
 
+    def _draw_bar(self, surface, x, y, ratio, color):
+        bar_w = 4
+        bar_max_h = 16
+        # Dessiner l'arrière-plan (santé max théorique)
+        pygame.draw.rect(surface, (102, 102, 102), (x, y, bar_w, bar_max_h))
+        
+        # Dessiner la valeur actuelle
+        h = int(ratio * bar_max_h)
+        if h > 0:
+            pygame.draw.rect(surface, color, (x, y + (bar_max_h - h), bar_w, h))
+
     def _draw_shield_panel(self, surface):
-        if self.view_who is None or self.view_type is None:
+        # On utilise en priorité l'entité qui possède le shield, sinon la sélection courante
+        target = self.shield_target
+        target_type = None
+        
+        if target is not None:
+            if isinstance(target, House):
+                target_type = 'house'
+            elif isinstance(target, Peep):
+                target_type = 'peep'
+        
+        # Si pas de shield target, on se rabat sur la sélection de vue
+        if target is None:
+            target = self.view_who
+            target_type = self.view_type
+
+        if target is None or target_type is None:
             return
 
         sprites = Peep.get_sprites()
 
-        # Coordonnées déduites des 4 parties du blason (en haut à droite, UI commence à x=256)
-        blason_tl = (271, 4)   # Top-Left (Colonie)
-        blason_tr = (287, 2)   # Top-Right (Arme)
-        blason_bl = (271, 23)  # Bottom-Left (Sprite/Animation)
-        blason_br = (287, 19)  # Bottom-Right (Energie)
+        # Coordonnées UI
+        blason_tl = (271, 4)   # Colonie
+        blason_tr = (287, 2)   # Arme
+        blason_bl = (271, 23)  # Animation
+        blason_br = (287, 19)  # Barres HP/NRG
 
-        # 1. Colonie bleue (4,8) ou rouge (4,9) -> pour l'instant prenons la bleue
-        colony_sprite = sprites.get((4, 8))
-        if self.view_type == 'peep' and getattr(self.view_who, 'is_enemy', False):
-            colony_sprite = sprites.get((4, 9))
+        # 1. Colonie
+        is_enemy = getattr(target, 'is_enemy', False)
+        colony_sprite = sprites.get((4, 9) if is_enemy else (4, 8))
         if colony_sprite:
             surface.blit(colony_sprite, blason_tl)
 
-        # 2. Arme représentée par un sprite
-        weapon_idx = None
-        if self.view_type == 'house':
-            weapon_idx = self.weapon_sprite_indices.get(getattr(self.view_who, 'building_type', ''), None)
-        elif self.view_type == 'peep':
-            weapon_idx = self.weapon_sprite_indices.get(getattr(self.view_who, 'weapon_type', ''), None)
+        # 2. Arme
+        weapon_type = getattr(target, 'building_type' if target_type == 'house' else 'weapon_type', 'hut')
+        weapon_idx = self.weapon_sprite_indices.get(weapon_type)
         if weapon_idx is not None and 0 <= weapon_idx < len(self.weapon_sprites):
-            sprite = self.weapon_sprites[weapon_idx]
-            # Centrer le sprite dans le quart haut-droit
-            x = blason_tr[0] + 2
-            y = blason_tr[1] + 1
-            surface.blit(sprite, (x, y))
+            surface.blit(self.weapon_sprites[weapon_idx], (blason_tr[0] + 2, blason_tr[1] + 1))
         else:
-            # Fallback : lettre grise
-            weapon = self._get_weapon_name(self.view_who, self.view_type)
-            weapon_letter = 'N' # None
-            if weapon != 'Aucune':
-                weapon_letter = weapon[0].upper()
-            w_text = self.font.render(weapon_letter, True, (240, 240, 240))
+            weapon_name = self._get_weapon_name(target, target_type)
+            w_text = self.font.render(weapon_name[0].upper() if weapon_name != 'Aucune' else 'N', True, (240, 240, 240))
             surface.blit(w_text, (blason_tr[0] + 6, blason_tr[1] + 2))
 
-        # 3. Sprite du peep animé, ou drapeau animé pour un bâtiment
-        show_flag = (self.view_type == 'house')
-        # Si c'était un peep en cours de construction (in_house = True ou similaire), on montre aussi le drapeau
-        if self.view_type == 'peep' and getattr(self.view_who, 'in_house', False):
-            show_flag = True
-
-        if not show_flag:
-            from peep import PEEP_WALK_FRAMES
-            facing = getattr(self.view_who, 'facing', 'IDLE')
-            anim = PEEP_WALK_FRAMES.get(facing, PEEP_WALK_FRAMES['IDLE'])
-            frame_idx = getattr(self.view_who, 'anim_frame', 0) % len(anim)
-            peep_idx = anim[frame_idx]
-            peep_sprite = sprites.get(peep_idx)
-            if peep_sprite:
-                # On centre dans le quart bas-gauche
-                surface.blit(peep_sprite, blason_bl)
-        else:
-            # Bâtiment ou peep en construction : drapeau animé (4,0 et 4,1)
+        # 3. Animation / Drapeau
+        in_house = getattr(target, 'in_house', False)
+        if target_type == 'house' or in_house:
             frame_idx = int(pygame.time.get_ticks() / 200) % 2
             flag_sprite = sprites.get((4, frame_idx))
             if flag_sprite:
-                # Décaler le drapeau de 3px vers la gauche pour les bâtiments
-                blason_flag = (blason_bl[0] - 3, blason_bl[1])
-                surface.blit(flag_sprite, blason_flag)
-
-
-        # 4. Barres shield bâtiment : puissance (jaune) et santé (orange)
-        if self.view_type == 'house':
-            from house import House
-            building_type = getattr(self.view_who, 'building_type', 'hut')
-            try:
-                tier = House.TYPES.index(building_type)
-            except Exception:
-                tier = 0
-            # Puissance : GROWTH_SPEEDS (1 à 16)
-            power = House.GROWTH_SPEEDS[tier]
-            max_power = max(House.GROWTH_SPEEDS)
-            ratio_yellow = min(1.0, max(0.0, power / max_power))
-            # Santé : vie actuelle / vie max
-            life = float(getattr(self.view_who, 'life', 0.0))
-            max_life = float(getattr(self.view_who, 'max_life', 16.0))
-            ratio_orange = min(1.0, max(0.0, life / max_life))
-            bar_w = 4
-            bar_max_h = 16
-            rect1_x = blason_br[0] + 3
-            rect2_x = blason_br[0] + 11
-            bar_bg_y = blason_br[1] + 3
-            # Fond
-            pygame.draw.rect(surface, (102, 102, 102), (rect1_x, bar_bg_y, bar_w, bar_max_h))
-            pygame.draw.rect(surface, (102, 102, 102), (rect2_x, bar_bg_y, bar_w, bar_max_h))
-            # Barre jaune = puissance
-            bar1_h = int(bar_max_h * ratio_yellow)
-            bar1_y = bar_bg_y + (bar_max_h - bar1_h)
-            if bar1_h > 0:
-                pygame.draw.rect(surface, (255, 220, 0), (rect1_x, bar1_y, bar_w, bar1_h))
-            # Barre orange = santé
-            bar2_h = int(bar_max_h * ratio_orange)
-            bar2_y = bar_bg_y + (bar_max_h - bar2_h)
-            if bar2_h > 0:
-                pygame.draw.rect(surface, (255, 140, 0), (rect2_x, bar2_y, bar_w, bar2_h))
+                surface.blit(flag_sprite, (blason_bl[0] - 3, blason_bl[1]))
         else:
-            # Affichage peep (inchangé)
-            life = float(getattr(self.view_who, 'life', 0.0))
-            hundreds = int(life // 100)
-            max_hundreds = 10.0
-            ratio_yellow = min(1.0, max(0.0, hundreds / max_hundreds))
-            units = life % 100
-            ratio_orange = min(1.0, max(0.0, units / 99.0))
-            bar_w = 4
-            bar_max_h = 16
-            rect1_x = blason_br[0] + 3
-            rect2_x = blason_br[0] + 11
-            bar_bg_y = blason_br[1] + 3
-            pygame.draw.rect(surface, (102, 102, 102), (rect1_x, bar_bg_y, bar_w, bar_max_h))
-            pygame.draw.rect(surface, (102, 102, 102), (rect2_x, bar_bg_y, bar_w, bar_max_h))
-            bar1_h = int(bar_max_h * ratio_yellow)
-            bar1_y = bar_bg_y + (bar_max_h - bar1_h)
-            if bar1_h > 0:
-                pygame.draw.rect(surface, (255, 220, 0), (rect1_x, bar1_y, bar_w, bar1_h))
-            bar2_h = int(bar_max_h * ratio_orange)
-            bar2_y = bar_bg_y + (bar_max_h - bar2_h)
-            if bar2_h > 0:
-                pygame.draw.rect(surface, (255, 140, 0), (rect2_x, bar2_y, bar_w, bar2_h))
+            facing = getattr(target, 'facing', 'IDLE')
+            from peep import WALK_FRAMES
+            anim = WALK_FRAMES.get(facing, WALK_FRAMES['IDLE'])
+            peep_sprite = sprites.get(anim[getattr(target, 'anim_frame', 0) % len(anim)])
+            if peep_sprite:
+                surface.blit(peep_sprite, blason_bl)
+
+        # 4. Barres (Y décalé de 4 pixels vers le bas)
+        bar_y = blason_br[1] + 4
+        rect1_x = blason_br[0] + 3
+        rect2_x = blason_br[0] + 11
+        
+        if target_type == 'house':
+            try:
+                tier = House.TYPES.index(getattr(target, 'building_type', 'hut'))
+            except:
+                tier = 0
+            # Barre de gauche (Jaune) : Niveau du building
+            ratio_yellow = (tier + 1) / len(House.TYPES)
+            # Barre de droite (Orange) : Santé du bâtiment (progression vers spawn)
+            ratio_orange = getattr(target, 'life', 1.0) / getattr(target, 'max_life', 16.0)
+            
+            self._draw_bar(surface, rect1_x, bar_y, min(1.0, ratio_yellow), (255, 255, 0))
+            self._draw_bar(surface, rect2_x, bar_y, min(1.0, ratio_orange), (255, 128, 0))
+        else:
+            # Peep : Santé de 0 à 999
+            life = getattr(target, 'life', 0)
+            hundreds = (life // 100) / 9.0  # 0-999 -> 0-9 centaines
+            units = (life % 100) / 99.0     # 0-99 reste
+            
+            # Les deux barres sont oranges pour les peeps
+            self._draw_bar(surface, rect1_x, bar_y, min(1.0, hundreds), (255, 128, 0))
+            self._draw_bar(surface, rect2_x, bar_y, min(1.0, units), (255, 128, 0))
 
     def _update_scanline_surface(self):
         w, h = self.screen.get_size()
@@ -482,6 +457,22 @@ class Game:
         elif action == '_do_shield':
             print("Mode shield activé")
             self.shield_mode = True
+        elif action == '_find_papal':
+            if self.papal_position:
+                r, c = self.papal_position
+                self.camera.center_on(r, c)
+                print(f"Caméra centrée sur le papal ({r}, {c})")
+        elif action == '_find_shield':
+            if self.shield_target is not None:
+                # La cible peut être un Peep (x, y) ou une House (r, c)
+                r = getattr(self.shield_target, 'y', getattr(self.shield_target, 'r', None))
+                c = getattr(self.shield_target, 'x', getattr(self.shield_target, 'c', None))
+                if r is not None and c is not None:
+                    self.camera.center_on(r, c)
+                    # Forcer la vue sur l'unité
+                    self.view_who = self.shield_target
+                    self.view_type = 'peep' if isinstance(self.shield_target, Peep) else 'house'
+                    print(f"Caméra centrée sur le shield ({r}, {c})")
         else:
             # Commandes de déplacement peep : activation exclusive
             if action in ['_go_build', '_go_assemble', '_go_papal', '_go_fight']:
@@ -578,7 +569,12 @@ class Game:
                 if self.shield_mode:
                     if event.button == 1:
                         if self._select_view_target(mx, my):
+                            # Retirer le shield de l'ancienne cible si elle existe
+                            if self.shield_target is not None:
+                                setattr(self.shield_target, 'has_shield', False)
+                            
                             self.shield_target = self.view_who
+                            setattr(self.shield_target, 'has_shield', True)
                             self.shield_mode = False
                         return
                     elif event.button == 3:
@@ -618,6 +614,26 @@ class Game:
                 # Relâchement du clic : stop scroll continu
                 self.dpad_held_direction = None
 
+    def _spawn_peep_from_house(self, house, transfer_shield=True):
+        new_peep = Peep(house.r, house.c, self.game_map)
+        new_peep.weapon_type = getattr(house, 'building_type', 'hut')
+        new_peep.life = house.max_life
+        
+        if transfer_shield and (getattr(house, 'has_shield', False) or self.shield_target == house):
+            new_peep.has_shield = True
+            house.has_shield = False
+            self.shield_target = new_peep
+            if self.view_who == house:
+                self.view_who = new_peep
+                self.view_type = 'peep'
+        
+        if self.active_peep_command:
+            new_peep.set_command(self.active_peep_command, self.active_peep_target)
+            if self.active_peep_command == '_go_assemble':
+                self._force_assemble_recompute = True
+                
+        return new_peep
+
     def update(self, dt):
         import time
         # Recalcul de l'assemblage si nécessaire (ex: après spawn d'un peep)
@@ -653,12 +669,37 @@ class Game:
         self.camera.update(dt)
         self.game_map.update(dt)
         for peep in self.peeps:
+            peep_had_shield = getattr(peep, 'has_shield', False)
             peep.update(dt)
+            
+            # Si le peep est mort et avait le shield, on perd la cible ou on gère le transfert
+            if peep.dead and peep_had_shield:
+                # Si un partenaire est vivant et a récupéré le shield, shield_target sera mis à jour par peep.update via la fusion
+                # Mais il faut s'assurer que self.shield_target pointe vers le survivant.
+                # Cependant, peep.update() ne connaît pas self.shield_target.
+                # On fait une vérification de sécurité ici :
+                if self.shield_target == peep:
+                    found_new = False
+                    # On cherche si un peep vivant a maintenant le shield
+                    for p in self.peeps:
+                        if not p.dead and getattr(p, 'has_shield', False):
+                            self.shield_target = p
+                            found_new = True
+                            break
+                    if not found_new:
+                        self.shield_target = None
+
             if not peep.dead:
                 new_house = peep.try_build_house()
-                if new_house is not None and self.view_type == 'peep' and self.view_who == peep:
-                    self.view_who = new_house
-                    self.view_type = 'house'
+                if new_house is not None:
+                    # Si le peep avait le shield, on le transfère à la nouvelle maison
+                    if peep_had_shield:
+                        new_house.has_shield = True
+                        self.shield_target = new_house
+                    
+                    if self.view_type == 'peep' and self.view_who == peep:
+                        self.view_who = new_house
+                        self.view_type = 'house'
         # Ajout des peeps excédentaires générés lors de la construction
         if hasattr(self.game_map, '_pending_peep'):
             self.peeps.extend(self.game_map._pending_peep)
@@ -671,37 +712,18 @@ class Game:
         houses_to_keep = []
         for house in self.game_map.houses:
             house.update(dt, self.game_map)
+            
             if getattr(house, 'destroyed', False):
-                # Le terrain n'est plus plat, on détruit la maison et récupère un peep
-                new_peep = Peep(house.r, house.c, self.game_map)
-                new_peep.life = house.life
-                new_peep.weapon_type = getattr(house, 'building_type', 'hut')
-                # Appliquer la commande peep active
-                if not new_peep.dead:
-                    new_peep.set_command(self.active_peep_command, self.active_peep_target)
-                new_peeps.append(new_peep)
-                if self.view_type == 'house' and self.view_who == house:
-                    self.view_who = new_peep
-                    self.view_type = 'peep'
+                # Récupération d'un peep lors de la destruction
+                p = self._spawn_peep_from_house(house)
+                p.life = house.life # Garde la vie actuelle si destruction
+                new_peeps.append(p)
             else:
                 houses_to_keep.append(house)
                 if house.can_spawn_peep():
-                    new_peep = Peep(house.r, house.c, self.game_map)
-                    # Donne l'arme du bâtiment au peep qui sort
-                    new_peep.weapon_type = getattr(house, 'building_type', 'hut')
-                    # Le peep sort avec la vie max du bâtiment
-                    new_peep.life = house.max_life
-                    # Appliquer la commande peep active
-                    if not new_peep.dead:
-                        new_peep.set_command(self.active_peep_command, self.active_peep_target)
-                    new_peeps.append(new_peep)
-
-                    # Si on est en mode ASSEMBLE, on force le recalcul des paires pour inclure le nouveau
-                    if self.active_peep_command == '_go_assemble':
-                        self._force_assemble_recompute = True
-
-                    # Le bâtiment retourne à 1 de vie
+                    new_peeps.append(self._spawn_peep_from_house(house))
                     house.life = 1.0
+                    
         self.game_map.houses = houses_to_keep
         self.peeps.extend(new_peeps)
 
@@ -739,6 +761,11 @@ class Game:
         # Maisons
         debug_font = pygame.font.SysFont("consolas", 14, bold=True) if self.show_debug else None
         self.game_map.draw_houses(self.internal_surface, cam_r, cam_c, show_debug=self.show_debug, debug_font=debug_font)
+        
+        # Dessiner le shield sur les maisons qui le possèdent
+        for house in self.game_map.houses:
+            if not getattr(house, 'destroyed', False) and getattr(house, 'has_shield', False):
+                self._draw_shield_marker(self.internal_surface, house, 'house', cam_r, cam_c)
 
         start_r, end_r, start_c, end_c = self.game_map.get_visible_bounds(cam_r, cam_c)
 
@@ -746,6 +773,9 @@ class Game:
             if peep.y < start_r or peep.y >= end_r or peep.x < start_c or peep.x >= end_c:
                 continue
             peep.draw(self.internal_surface, cam_r, cam_c, show_debug=self.show_debug, debug_font=debug_font)
+            # Affiche le shield automatique si le peep l'a (même s'il n'est pas sélectionné)
+            if getattr(peep, 'has_shield', False):
+                self._draw_shield_marker(self.internal_surface, peep, 'peep', cam_r, cam_c)
 
         # --- Affichage du papal (tile 5,0) après maisons et peeps ---
         papal_tile = self.game_map.tile_surfaces.get((5, 0))

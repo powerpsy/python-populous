@@ -1,15 +1,16 @@
 TODO ----------------------------------------------------------------------------------------------
 
-* Peep behavior case: fight
-* Add sound to actions/powers/combat
-* Create enemies
-* Add a home page and game mode/password selection
-* Add a gameover page
-* Create battles
-* Add trees & rocks + logic to remove
+* v2 Create foes
+* v2 Create god foe (the computer plays the game against you)
+* v2 Peep behavior case: fight
+* v3 Add sound to actions/powers/combat
+* v4 Add a home page and game mode/password selection
+* v4 Add a gameover page
+* v2 Create battles
+* v5 Add trees & rocks + logic to remove
 * bug: castle drawing on terrain edges: the castle is always drawn as a full unit, even if it shall not be seen partially out of the 8x8 map
 * bug: mouse sprite is drawn behing the shield sprites. shall be the opposite.
-* Add internet multiplayer
+* v9 Add internet multiplayer
 
 DONE ----------------------------------------------------------------------------------------------
 v0.1.0
@@ -56,3 +57,9 @@ v0.1.7
 v0.1.8
 37. Peep behavior case: assemble - peeps are standing with no movement (idle animation)
 38. building placement refinement: peeps should be able to place more buildings up to the ability to transform into castle if enough space / ability to remove neighbours without destroying castles (highest priority)
+v0.1.9
+39. Shield behaviour reviewed: it now goes from peep to building and from building to peep, also is kept when fusioning peeps.
+40. Display correction of health in the shield (building and peep)
+41. Added the <find_papal> function
+42. Added the <find_shield> function
+43. Drowning peeps were able to move when drowning (actually they were swimming !) now they stay in place.
