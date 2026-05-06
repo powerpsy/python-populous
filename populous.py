@@ -98,6 +98,22 @@ class Game:
         self.running = True
         self.show_debug = True
         self.show_scanlines = False
+        
+        self.power_jauge = {'allies': 0.0, 'foes': 0.0}
+        self.power_max = {'allies': 0.0, 'foes': 0.0}
+        self.POWER_COSTS = {
+            '_raise_terrain': 1,
+            '_lower_terrain': 1,
+            '_do_papal': 10,
+            '_do_quake': 100,
+            '_do_swamp': 200,
+            '_do_knight': 300,
+            '_do_volcano': 500,
+            '_do_flood': 1200,
+            '_battle_over': 2000,
+            '_do_shield': 0,
+        }
+        
         self.view_who = None
         self._force_assemble_recompute = False
         self.view_type = None
@@ -622,9 +638,13 @@ class Game:
                     if start_r <= r <= end_r and start_c <= c <= end_c:
                         if self.papal_mode:
                             if event.button == 1:
-                                # Place/déplace le papal (un seul possible) sur la case au nord-ouest (NW)
-                                self.papal_position = (max(r - 1, 0), max(c - 1, 0))
-                                self.papal_mode = False  # Désactive le mode après un clic
+                                if self.power_jauge['allies'] >= self.POWER_COSTS['_do_papal']:
+                                    self.power_jauge['allies'] -= self.POWER_COSTS['_do_papal']
+                                    # Place/déplace le papal (un seul possible) sur la case au nord-ouest (NW)
+                                    self.papal_position = (max(r - 1, 0), max(c - 1, 0))
+                                    self.papal_mode = False  # Désactive le mode après un clic
+                                else:
+                                    print("Pas assez de power pour papal !")
                             elif event.button == 3:
                                 # Annule le mode papal et revient à raise_terrain
                                 self.papal_mode = False
@@ -632,9 +652,21 @@ class Game:
                             return
                         elif not self.papal_mode and not self.shield_mode:
                             if event.button == 1:
-                                self.game_map.raise_corner(r, c)
+                                cost = self.game_map.get_raise_cost(r, c)
+                                if cost > 0:
+                                    if self.power_jauge['allies'] >= cost:
+                                        self.power_jauge['allies'] -= cost
+                                        self.game_map.raise_corner(r, c)
+                                    else:
+                                        print(f"Pas assez de power pour raise_terrain ! (coût: {cost})")
                             elif event.button == 3:
-                                self.game_map.lower_corner(r, c)
+                                cost = self.game_map.get_lower_cost(r, c)
+                                if cost > 0:
+                                    if self.power_jauge['allies'] >= cost:
+                                        self.power_jauge['allies'] -= cost
+                                        self.game_map.lower_corner(r, c)
+                                    else:
+                                        print(f"Pas assez de power pour lower_terrain ! (coût: {cost})")
             elif event.type == pygame.MOUSEBUTTONUP:
                 # Relâchement du clic : stop scroll continu
                 self.dpad_held_direction = None
@@ -662,6 +694,23 @@ class Game:
 
     def update(self, dt):
         import time
+        # Mise à jour des jauges de pouvoir
+        sum_growth = {'allies': 0, 'foes': 0}
+        for house in self.game_map.houses:
+            if not getattr(house, 'destroyed', False):
+                team = getattr(house, 'team', 'allies')
+                if team in sum_growth:
+                    tier = house.TYPES.index(house.building_type) if house.building_type in house.TYPES else 0
+                    max_tier = min(tier, len(house.GROWTH_SPEEDS) - 1)
+                    sum_growth[team] += house.GROWTH_SPEEDS[max_tier]
+
+        for team in ['allies', 'foes']:
+            self.power_max[team] = 5 * sum_growth[team]
+            power_raise = 1 + int(sum_growth[team] / 10)
+            self.power_jauge[team] += power_raise * dt
+            if self.power_jauge[team] > self.power_max[team]:
+                self.power_jauge[team] = self.power_max[team]
+
         # Recalcul de l'assemblage si nécessaire (ex: après spawn d'un peep)
         if getattr(self, '_force_assemble_recompute', False) and self.active_peep_command == '_go_assemble':
             self._force_assemble_recompute = False
@@ -862,7 +911,33 @@ class Game:
 
         self.minimap.draw(self.internal_surface, self.game_map, self.camera, self.peeps)
 
-        # Curseur custom affiché partout, curseur système toujours masqué (DESSINÉ APRÈS la minimap)
+        self._draw_shield_panel(self.internal_surface)
+
+        # Affichage du pointeur de powerjauge
+        power_pointer = Peep.get_sprites().get((8, 9))
+        if power_pointer:
+            # Calcul du ratio de remplissage
+            ratio = 0.0
+            if self.power_max['allies'] > 0:
+                ratio = min(1.0, self.power_jauge['allies'] / self.power_max['allies'])
+            
+            # Position isométrique le long du bord en haut à droite
+            # Origine (power=0) : (base_size[0] // 2 + 16, 17)
+            # On suit une logique iso 2:1 pour le déplacement
+            base_px = self.base_size[0] // 2 + 16
+            base_py = 17
+            
+            # Déplacement maximum de 126 pixels vers la droite
+            # Avec un ratio iso 2:1, cela donne 63 pixels vers le bas
+            max_dx = 126
+            max_dy = 63
+            
+            px = base_px + (ratio * max_dx)
+            py = base_py + (ratio * max_dy)
+            
+            self.internal_surface.blit(power_pointer, (px, py))
+
+        # Curseur custom affiché partout, curseur système toujours masqué (DESSINÉ APRÈS la minimap et le blason)
         sprites = Peep.get_sprites()
         mx, my = pygame.mouse.get_pos()
         mx_screen = mx // self.display_scale
@@ -884,10 +959,6 @@ class Game:
             if default_cursor:
                 sprite_rect = default_cursor.get_rect(topleft=(mx_screen, my_screen))
                 self.internal_surface.blit(default_cursor, sprite_rect)
-
-        self._draw_shield_panel(self.internal_surface)
-
-        # Suppression de l'affichage des cases violettes (debug UI)
         
         # Scale internal surface to display window size
         scaled_surface = pygame.transform.scale(self.internal_surface, self.screen.get_size())
@@ -919,7 +990,8 @@ class Game:
                 f"Corner: ({grid_r}, {grid_c}) Alt: {alt_text}",
                 f"Camera R/C: ({cam_r:.2f}, {cam_c:.2f})",
                 f"Peeps: {len(self.peeps)}",
-                f"Houses: {len(self.game_map.houses)}"
+                f"Houses: {len(self.game_map.houses)}",
+                f"Powerjauge {int(self.power_jauge['allies'])} (allies) / {int(self.power_jauge['foes'])} (foes)"
             ]
             bold_font = pygame.font.SysFont("consolas", 16, bold=True)
             for i, text in enumerate(debug_texts):

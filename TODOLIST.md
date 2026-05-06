@@ -1,17 +1,24 @@
 TODO ----------------------------------------------------------------------------------------------
 
 * v2 Create god foe (the computer plays the game against you)
-* v2 Peep behavior case: fight
+* v2 create leader when getting papal (carries the cross / evil sign)
+* v2 Update powerjauge with a non linear progression linked to the POWER_COST matrix
+* v2 Add god power: flood
+* v2 Add god power: quake
+* v2 Add god power: mountain
+* v2 Add god power: swamps
+* v2 Add god power: knight
+* v2 Add god power: war
 * v3 Add sound to actions/powers/combat
+* v4 Add a map generator (using a simple "key" to generate x/y peeps in different locations and different terrain typologies) --> simulate reproducible random maps as in the original game
 * v4 Add a home page and game mode/password selection
 * v4 Add a gameover page
 * v2 update battle outcome with weapon + ramdomness
 * v5 Add trees & rocks + logic to remove
-* bug: castle drawing on terrain edges: the castle is always drawn as a full unit, even if it shall not be seen partially out of the 8x8 map
-* bug: mouse sprite is drawn behing the shield sprites. shall be the opposite.
-* v9 Add internet multiplayer
-* bug: buildings distance needs to be reviewed + some new buildings diminish existing buildings
-* bug review peeps movement (all together the same direction)
+* v9+ Add internet multiplayer
+* v9+ Change map scale displayed from 8x8 to 16x16 and 32x32
+* v2 buildings distance needs to be reviewed + some new buildings diminish existing buildings
+* v2 review peeps movement (all together the same direction is not good !)
 
 DONE ----------------------------------------------------------------------------------------------
 v0.1.0
@@ -68,3 +75,9 @@ v0.2.0
 44. Create foes
 45. Update minimap with allies/foes colours
 46. Create battles
+v0.2.1
+47. Mouse sprite is drawn behing the shield sprites. shall be the opposite.
+48. Castle drawing on terrain edges: the castle is always drawn as a full unit, even if it shall not be seen partially out of the 8x8 map
+49. Added peep behavior case: go_fight
+50. Define god power costs, max power jauge and accumulation term
+51. Add power jauge

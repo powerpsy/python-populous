@@ -151,6 +151,54 @@ class GameMap:
     def lower_corner(self, r, c):
         self.propagate_lower(r, c)
 
+    def get_raise_cost(self, r, c):
+        backup = [row[:] for row in self.corners]
+        visited = set()
+        changed = []
+        def prop(curr_r, curr_c):
+            if (curr_r, curr_c) in visited:
+                return
+            visited.add((curr_r, curr_c))
+            current = self.get_corner_altitude(curr_r, curr_c)
+            new_alt = current + 1
+            if self.set_corner_altitude(curr_r, curr_c, new_alt):
+                changed.append((curr_r, curr_c))
+                for dr in [-1, 0, 1]:
+                    for dc in [-1, 0, 1]:
+                        if dr == 0 and dc == 0:
+                            continue
+                        nr, nc = curr_r + dr, curr_c + dc
+                        if 0 <= nr <= self.grid_height and 0 <= nc <= self.grid_width:
+                            if new_alt - self.get_corner_altitude(nr, nc) > 1:
+                                prop(nr, nc)
+        prop(r, c)
+        self.corners = backup
+        return len(changed)
+
+    def get_lower_cost(self, r, c):
+        backup = [row[:] for row in self.corners]
+        visited = set()
+        changed = []
+        def prop(curr_r, curr_c):
+            if (curr_r, curr_c) in visited:
+                return
+            visited.add((curr_r, curr_c))
+            current = self.get_corner_altitude(curr_r, curr_c)
+            new_alt = current - 1
+            if self.set_corner_altitude(curr_r, curr_c, new_alt):
+                changed.append((curr_r, curr_c))
+                for dr in [-1, 0, 1]:
+                    for dc in [-1, 0, 1]:
+                        if dr == 0 and dc == 0:
+                            continue
+                        nr, nc = curr_r + dr, curr_c + dc
+                        if 0 <= nr <= self.grid_height and 0 <= nc <= self.grid_width:
+                            if self.get_corner_altitude(nr, nc) - new_alt > 1:
+                                prop(nr, nc)
+        prop(r, c)
+        self.corners = backup
+        return len(changed)
+
     def update(self, dt):
         """Met à jour les animations (eau)."""
         self.water_timer += dt
@@ -318,7 +366,14 @@ class GameMap:
         peep_sprites = Peep.get_sprites()
 
         for house in sorted(self.houses, key=lambda h: h.r + h.c):
-            if house.r < start_r or house.r >= end_r or house.c < start_c or house.c >= end_c:
+            if house.building_type == 'castle':
+                min_r, max_r = house.r - 1, house.r + 1
+                min_c, max_c = house.c - 1, house.c + 1
+            else:
+                min_r, max_r = house.r, house.r
+                min_c, max_c = house.c, house.c
+
+            if max_r < start_r or min_r >= end_r or max_c < start_c or min_c >= end_c:
                 continue
             
             # Sélection du drapeau d'équipe (Allies 4.0/4.1, Foes 4.2/4.3)
@@ -338,16 +393,17 @@ class GameMap:
                 for dr, dc, tile_key in offsets:
                     nr, nc = house.r + dr, house.c + dc
                     if 0 <= nr < self.grid_height and 0 <= nc < self.grid_width:
-                        alt = self.get_corner_altitude(nr, nc)
-                        tile_surf = self.tile_surfaces.get(tile_key)
-                        if tile_surf is not None:
-                            sx, sy = self.world_to_screen(nr, nc, alt, cam_r, cam_c)
-                            surface.blit(tile_surf, (sx - TILE_HALF_W, sy))
-                if flag_surf is not None:
+                        if start_r <= nr < end_r and start_c <= nc < end_c:
+                            alt = self.get_corner_altitude(nr, nc)
+                            tile_surf = self.tile_surfaces.get(tile_key)
+                            if tile_surf is not None:
+                                sx, sy = self.world_to_screen(nr, nc, alt, cam_r, cam_c)
+                                surface.blit(tile_surf, (sx - TILE_HALF_W, sy))
+                if flag_surf is not None and start_r <= house.r < end_r and start_c <= house.c < end_c:
                     sx, sy = self.world_to_screen(house.r, house.c, self.get_corner_altitude(house.r, house.c), cam_r, cam_c)
                     surface.blit(flag_surf, (sx, sy))
                 # Affichage debug vie château (centre)
-                if show_debug and debug_font is not None:
+                if show_debug and debug_font is not None and start_r <= house.r < end_r and start_c <= house.c < end_c:
                     sx, sy = self.world_to_screen(house.r, house.c, self.get_corner_altitude(house.r, house.c), cam_r, cam_c)
                     # Bleu (0,255,255) pour alliés, Violet (255,0,255) pour foes
                     color = (255, 0, 255) if getattr(house, 'team', 'allies') == 'foes' else (0, 255, 255)
