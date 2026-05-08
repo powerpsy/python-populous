@@ -15,7 +15,10 @@ if not os.path.exists('populous.py'):
 version_tag = input("Version: ")
 commit_msg = input("Commentaire de version: ")
 
-# Ajoute tous les changements0.
+# Nettoyage de l'index pour s'assurer que le .gitignore est respecté (en cas de fichiers déjà suivis)
+subprocess.run(["git", "rm", "-r", "--cached", ".", "--quiet"])
+
+# Ajoute tous les changements (respecte désormais le .gitignore après le rm --cached)
 subprocess.run(["git", "add", "."])
 
 # Commit avec le message personnalisé

@@ -3,10 +3,6 @@ TODO ---------------------------------------------------------------------------
 * v2 Create god foe (the computer plays the game against you)
 * v2 create leader when getting papal (carries the cross / evil sign)
 * v2 Update powerjauge with a non linear progression linked to the POWER_COST matrix
-* v2 Add god power: flood
-* v2 Add god power: quake
-* v2 Add god power: mountain
-* v2 Add god power: swamps
 * v2 Add god power: knight
 * v2 Add god power: war
 * v3 Add sound to actions/powers/combat
@@ -14,14 +10,18 @@ TODO ---------------------------------------------------------------------------
 * v4 Add a home page and game mode/password selection
 * v4 Add a gameover page
 * v2 update battle outcome with weapon + ramdomness
-* v5 Add trees & rocks + logic to remove
+* v2 Add trees + logic to remove
 * v9+ Add internet multiplayer
 * v9+ Change map scale displayed from 8x8 to 16x16 and 32x32
 * v2 buildings distance needs to be reviewed + some new buildings diminish existing buildings
 * v2 review peeps movement (all together the same direction is not good !)
+* v3 peeps drowning can not "wait" for a battle
+* v2 peeps are not allowed to walk through rocks
 
 DONE ----------------------------------------------------------------------------------------------
 v0.1.0
+26. Added god power: quake
+25. Added god power: flood
 01. Add a game window and the ability to scroll to the edges of the terrain
 02. Add the star sprite for terrain control
 03. Manage peeps 1: Add two energy bars above (one yellow, one orange), 1 yellow pixel = one full orange bar
@@ -81,3 +81,10 @@ v0.2.1
 49. Added peep behavior case: go_fight
 50. Define god power costs, max power jauge and accumulation term
 51. Add power jauge
+v0.2.2
+52. Add god power: volcano
+53. Add rocks + logic to remove in water
+54. Added rocks logic to prevent building & influence zone
+55. Add god power: flood
+56. Add god power: quake
+57. Add god power: swamps

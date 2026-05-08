@@ -22,6 +22,7 @@ class Game:
         self.papal_mode = False
         self.papal_position = (GRID_HEIGHT // 2, GRID_WIDTH // 2)  # Un seul papal, centré au début
         self.shield_mode = False  # Mode blason/shield
+        self.volcano_mode = False # Mode volcan
         self.shield_target = None  # Entité actuellement "blasonnée"
 
         pygame.init()
@@ -99,18 +100,25 @@ class Game:
         self.show_debug = True
         self.show_scanlines = False
         
+        # --- Chargement des sons ---
+        self.sounds = {}
+        for sfx_name in ["do_volcano", "do_flood", "do_quake", "swamp", "swamped"]:
+            wav_path = os.path.join(SFX_DIR, f"{sfx_name}.wav")
+            if pygame.mixer.get_init() and os.path.exists(wav_path):
+                self.sounds[sfx_name] = pygame.mixer.Sound(wav_path)
+        
         self.power_jauge = {'allies': 0.0, 'foes': 0.0}
         self.power_max = {'allies': 0.0, 'foes': 0.0}
         self.POWER_COSTS = {
             '_raise_terrain': 1,
             '_lower_terrain': 1,
             '_do_papal': 10,
-            '_do_quake': 100,
-            '_do_swamp': 200,
-            '_do_knight': 300,
-            '_do_volcano': 500,
-            '_do_flood': 1200,
-            '_battle_over': 2000,
+            '_do_quake': 5, #100
+            '_do_swamp': 5, #200
+            '_do_knight': 5, #300
+            '_do_volcano': 5, #500
+            '_do_flood': 5, #1200
+            '_battle_over': 5, #2000
             '_do_shield': 0,
         }
         
@@ -122,6 +130,11 @@ class Game:
         # Commande peep active (par défaut _go_build)
         self.active_peep_command = '_go_build'
         self.active_peep_target = (self.game_map.grid_height // 2, self.game_map.grid_width // 2)
+
+        # --- Variables pour le tremblement de terre ---
+        self.quake_timer = 0.0
+        self.quake_shake_y = 0
+        self.quake_target = None # (r, c)
 
         # --- Initialisation des zones interactives de l'interface ---
         cx, cy = 64, 168 # Centre de base
@@ -193,7 +206,7 @@ class Game:
         for idx, name in enumerate(button_order):
             self.button_sprite_indices[name] = idx 
 
-    def _get_peep_sprite_rect(self, peep, cam_r, cam_c):
+    def _get_peep_sprite_rect(self, peep, cam_r, cam_c, offset_y=0):
         gr, gc = int(peep.y), int(peep.x)
         fx = peep.x - gc
         fy = peep.y - gr
@@ -207,6 +220,7 @@ class Game:
             alt = 0
 
         sx, sy = self.game_map.world_to_screen(peep.y, peep.x, alt, cam_r, cam_c)
+        sy += offset_y
         ground_y = sy + TILE_HALF_H
         sprites = Peep.get_sprites()
         from peep import PEEP_WALK_FRAMES, FOE_WALK_FRAMES
@@ -232,14 +246,16 @@ class Game:
         sw, sh = sprite.get_size()
         return pygame.Rect(sx - sw // 2, ground_y - sh, sw, sh)
 
-    def _get_house_sprite_rect(self, house, cam_r, cam_c):
+    def _get_house_sprite_rect(self, house, cam_r, cam_c, offset_y=0):
         if house.building_type == 'castle':
             alt = self.game_map.get_corner_altitude(house.r, house.c)
             sx, sy = self.game_map.world_to_screen(house.r, house.c, alt, cam_r, cam_c)
+            sy += offset_y
             return pygame.Rect(sx - TILE_WIDTH, sy - TILE_HEIGHT, TILE_WIDTH * 2, TILE_HEIGHT * 2)
 
         alt = self.game_map.get_corner_altitude(house.r, house.c)
         sx, sy = self.game_map.world_to_screen(house.r, house.c, alt, cam_r, cam_c)
+        sy += offset_y
         tile_key = BUILDING_TILES.get(house.building_type, BUILDING_TILES['hut'])
         tile_surf = self.game_map.tile_surfaces.get(tile_key)
         if tile_surf is None:
@@ -312,14 +328,14 @@ class Game:
             return 'Epee'
         return 'Arc'
 
-    def _draw_shield_marker(self, surface, target, target_type, cam_r, cam_c):
+    def _draw_shield_marker(self, surface, target, target_type, cam_r, cam_c, offset_y=0):
         sprites = Peep.get_sprites()
         shield_sprite = sprites.get((8, 8))
         if shield_sprite is None:
             return
 
         if target_type == 'peep':
-            rect = self._get_peep_sprite_rect(target, cam_r, cam_c)
+            rect = self._get_peep_sprite_rect(target, cam_r, cam_c, offset_y=offset_y)
             # Sur le peep comme s'il le tenait (légèrement décalé)
             x = rect.centerx - 1
             y = rect.centery - shield_sprite.get_height() // 2 + 2
@@ -333,6 +349,7 @@ class Game:
             center_c = getattr(target, 'c', 0)
             alt = self.game_map.get_corner_altitude(center_r, center_c)
             sx, sy = self.game_map.world_to_screen(center_r, center_c, alt, cam_r, cam_c)
+            sy += offset_y
             # Simule un "rect" virtuel pour la case centrale
             rect = pygame.Rect(sx - TILE_HALF_W, sy, TILE_WIDTH, TILE_HEIGHT)
             x = rect.centerx - shield_sprite.get_width() // 2 + 11
@@ -340,7 +357,7 @@ class Game:
             surface.blit(shield_sprite, (x, y))
             return
 
-        rect = self._get_house_sprite_rect(target, cam_r, cam_c)
+        rect = self._get_house_sprite_rect(target, cam_r, cam_c, offset_y=offset_y)
         # Décalage générique pour les autres bâtiments
         x = rect.centerx - shield_sprite.get_width() // 2 + 11
         y = rect.top - shield_sprite.get_height() - 2 + 23
@@ -449,6 +466,11 @@ class Game:
         for y in range(0, h, max(1, self.display_scale)):
             pygame.draw.line(self.scanline_surface, (0, 0, 0, 100), (0, y), (w, y), 1)
 
+    def play_sound(self, name):
+        """Joue un son s'il est chargé."""
+        if name in self.sounds:
+            self.sounds[name].play()
+
     def spawn_initial_peeps(self, count):
         # Spawn initial d'allies (bleus)
         for _ in range(count // 2):
@@ -487,6 +509,8 @@ class Game:
             self.papal_mode = False
         if action != '_do_shield':
             self.shield_mode = False
+        if action != '_do_volcano':
+            self.volcano_mode = False
         if action in ['N', 'S', 'E', 'W', 'NW', 'NE', 'SW', 'SE']:
             if held:
                 self.dpad_held_direction = action
@@ -499,6 +523,56 @@ class Game:
         elif action == '_do_shield':
             print("Mode shield activé")
             self.shield_mode = True
+        elif action == '_do_volcano':
+            cost = self.POWER_COSTS['_do_volcano']
+            if self.power_jauge['allies'] >= cost:
+                self.power_jauge['allies'] -= cost
+                # Le centre de la vue actuelle (8x8) est à cam.r + 4, cam.c + 4
+                target_r = int(self.camera.r + 4)
+                target_c = int(self.camera.c + 4)
+                self.game_map.do_volcano(target_r, target_c)
+                self.play_sound('do_volcano')
+                print(f"Volcan lancé au centre de la vue ({target_r}, {target_c})")
+                # On reste en raise_terrain après
+                self._handle_ui_click('_raise_terrain', held=False)
+            else:
+                print("Pas assez de power pour volcan !")
+        elif action == '_do_flood':
+            cost = self.POWER_COSTS['_do_flood']
+            if self.power_jauge['allies'] >= cost:
+                self.power_jauge['allies'] -= cost
+                self.game_map.do_flood()
+                self.play_sound('do_flood')
+                print("Flood lancé ! Toute la carte a baissé de 1.")
+                # Retour au mode sélectionné
+                self._handle_ui_click('_raise_terrain', held=False)
+            else:
+                print("Pas assez de power pour flood !")
+        elif action == '_do_quake':
+            cost = self.POWER_COSTS['_do_quake']
+            if self.power_jauge['allies'] >= cost:
+                self.power_jauge['allies'] -= cost
+                # Déclenche l'effet visuel et le son
+                self.quake_timer = 2.0
+                self.quake_target = (int(self.camera.r + 4), int(self.camera.c + 4))
+                self.play_sound('do_quake')
+                print("Tremblement de terre lancé ! Secousse en cours...")
+                # Retour au mode sélectionné
+                self._handle_ui_click('_raise_terrain', held=False)
+            else:
+                print("Pas assez de power pour quake !")
+        elif action == '_do_swamp':
+            cost = self.POWER_COSTS['_do_swamp']
+            if self.power_jauge['allies'] >= cost:
+                self.power_jauge['allies'] -= cost
+                target_r, target_c = int(self.camera.r + 4), int(self.camera.c + 4)
+                self.game_map.do_swamp(target_r, target_c)
+                self.play_sound('swamp')
+                print(f"Marécage lancé au centre de la vue ({target_r}, {target_c})")
+                # Retour au mode sélectionné
+                self._handle_ui_click('_raise_terrain', held=False)
+            else:
+                print("Pas assez de power pour marécage !")
         elif action == '_find_papal':
             if self.papal_position:
                 r, c = self.papal_position
@@ -582,6 +656,7 @@ class Game:
                     self.spawn_initial_peeps(10)
                 elif event.key == pygame.K_F4:
                     self.game_map.set_all_altitude(1)
+                    self.game_map.swamps.clear()
                 elif event.key == pygame.K_F12:
                     self.show_scanlines = not self.show_scanlines
                 elif event.unicode == '§':
@@ -650,7 +725,7 @@ class Game:
                                 self.papal_mode = False
                                 self._handle_ui_click('_raise_terrain', held=False)
                             return
-                        elif not self.papal_mode and not self.shield_mode:
+                        elif not self.papal_mode and not self.shield_mode and not self.volcano_mode:
                             if event.button == 1:
                                 cost = self.game_map.get_raise_cost(r, c)
                                 if cost > 0:
@@ -732,13 +807,30 @@ class Game:
                 if not peep.dead:
                     peep.set_command(self.active_peep_command, self.active_peep_target)
 
-        # Scroll continu D-Pad UI
         if self.dpad_held_direction:
             self.dpad_held_timer -= dt
             if self.dpad_held_timer <= 0.0:
                 self.move_camera_direction(self.dpad_held_direction)
                 self.dpad_held_timer = self.dpad_repeat_delay
                 self.dpad_last_flash_time = time.time()
+
+        # Mise à jour du tremblement de terre
+        if getattr(self, 'quake_timer', 0) > 0:
+            self.quake_timer -= dt
+            # 10 fois pendant 2s => environ un cycle toutes le 0.2s
+            # Mode binaire : une image en haut (0px), une image en bas (+8px)
+            # On utilise le timer pour alterner brusquement
+            if int(self.quake_timer * 10) % 2 == 0:
+                self.quake_shake_y = 0
+            else:
+                self.quake_shake_y = -8
+            
+            if self.quake_timer <= 0:
+                self.quake_timer = 0
+                self.quake_shake_y = 0
+                if self.quake_target:
+                    self.game_map.do_quake(self.quake_target[0], self.quake_target[1])
+                    self.quake_target = None
 
         self.camera.update(dt)
 
@@ -763,6 +855,10 @@ class Game:
         for peep in self.peeps:
             peep_had_shield = getattr(peep, 'has_shield', False)
             peep.update(dt)
+
+            if getattr(peep, 'just_swamped', False):
+                self.play_sound('swamped')
+                peep.just_swamped = False
             
             # Si le peep est mort et avait le shield, on perd la cible ou on gère le transfert
             if peep.dead and peep_had_shield:
@@ -846,28 +942,29 @@ class Game:
                 self.internal_surface.blit(sprite, pos)
 
         cam_r, cam_c = self.camera.r, self.camera.c
+        offset_y = getattr(self, 'quake_shake_y', 0)
 
         # Terrain
-        self.game_map.draw(self.internal_surface, cam_r, cam_c)
+        self.game_map.draw(self.internal_surface, cam_r, cam_c, offset_y=offset_y)
 
         # Maisons
         debug_font = pygame.font.SysFont("consolas", 14, bold=True) if self.show_debug else None
-        self.game_map.draw_houses(self.internal_surface, cam_r, cam_c, show_debug=self.show_debug, debug_font=debug_font)
+        self.game_map.draw_houses(self.internal_surface, cam_r, cam_c, show_debug=self.show_debug, debug_font=debug_font, offset_y=offset_y)
         
         # Dessiner le shield sur les maisons qui le possèdent
         for house in self.game_map.houses:
             if not getattr(house, 'destroyed', False) and getattr(house, 'has_shield', False):
-                self._draw_shield_marker(self.internal_surface, house, 'house', cam_r, cam_c)
+                self._draw_shield_marker(self.internal_surface, house, 'house', cam_r, cam_c, offset_y=offset_y)
 
         start_r, end_r, start_c, end_c = self.game_map.get_visible_bounds(cam_r, cam_c)
 
         for peep in self.peeps:
             if peep.y < start_r or peep.y >= end_r or peep.x < start_c or peep.x >= end_c:
                 continue
-            peep.draw(self.internal_surface, cam_r, cam_c, show_debug=self.show_debug, debug_font=debug_font)
+            peep.draw(self.internal_surface, cam_r, cam_c, show_debug=self.show_debug, debug_font=debug_font, offset_y=offset_y)
             # Affiche le shield automatique si le peep l'a (même s'il n'est pas sélectionné)
             if getattr(peep, 'has_shield', False):
-                self._draw_shield_marker(self.internal_surface, peep, 'peep', cam_r, cam_c)
+                self._draw_shield_marker(self.internal_surface, peep, 'peep', cam_r, cam_c, offset_y=offset_y)
 
         # --- Affichage du papal (tile 5,0) après maisons et peeps ---
         papal_tile = self.game_map.tile_surfaces.get((5, 0))
@@ -878,14 +975,14 @@ class Game:
                 alt = self.game_map.get_corner_altitude(r, c)
                 sx, sy = self.game_map.world_to_screen(r, c, alt, cam_r, cam_c)
                 blit_x = sx - TILE_HALF_W
-                blit_y = sy
+                blit_y = sy + offset_y
                 self.internal_surface.blit(papal_tile, (blit_x, blit_y))
 
         if self.view_who is not None and self.view_type is not None:
             r = getattr(self.view_who, 'y', getattr(self.view_who, 'r', -1))
             c = getattr(self.view_who, 'x', getattr(self.view_who, 'c', -1))
             if start_r <= r < end_r and start_c <= c < end_c:
-                self._draw_shield_marker(self.internal_surface, self.view_who, self.view_type, cam_r, cam_c)
+                self._draw_shield_marker(self.internal_surface, self.view_who, self.view_type, cam_r, cam_c, offset_y=offset_y)
 
         mouse_x, mouse_y = pygame.mouse.get_pos()
         mouse_x //= self.display_scale

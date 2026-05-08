@@ -56,6 +56,8 @@ class GameMap:
             for _ in range(grid_height + 1)
         ]
         self.houses = []
+        self.rocks = {}  # { (r, c): tile_key }
+        self.swamps = set() # { (r, c) }
         self.tile_surfaces = load_tile_surfaces()
         self.water_timer = 0.0
         self.water_frame = 0
@@ -71,6 +73,12 @@ class GameMap:
             clamped = max(ALTITUDE_MIN, min(value, ALTITUDE_MAX))
             if self.corners[r][c] != clamped:
                 self.corners[r][c] = clamped
+                # Le terrain a changé, les marécages adjacents disparaissent
+                for dr in [-1, 0]:
+                    for dc in [-1, 0]:
+                        nr, nc = r + dr, c + dc
+                        if (nr, nc) in self.swamps:
+                            self.swamps.remove((nr, nc))
                 return True
         return False
 
@@ -147,9 +155,98 @@ class GameMap:
 
     def raise_corner(self, r, c):
         self.propagate_raise(r, c)
+        self.update_rocks_water()
 
     def lower_corner(self, r, c):
         self.propagate_lower(r, c)
+        self.update_rocks_water()
+
+    def do_flood(self):
+        """Baisse l'altitude de TOUS les coins de la carte de 1 niveau."""
+        for r in range(self.grid_height + 1):
+            for c in range(self.grid_width + 1):
+                self.corners[r][c] = max(ALTITUDE_MIN, self.corners[r][c] - 1)
+        self.update_rocks_water()
+
+    def do_quake(self, center_r, center_c):
+        """Effectue les dégâts physiques du tremblement de terre : baisse 20-30 cases et en monte 0-10 au hasard."""
+        # Abaissement (20-30 cases)
+        lower_count = random.randint(20, 30)
+        for _ in range(lower_count):
+            rr = center_r + random.randint(-4, 3)
+            rc = center_c + random.randint(-4, 3)
+            self.lower_corner(rr, rc)
+        
+        # Élévation (0-10 cases)
+        raise_count = random.randint(0, 10)
+        for _ in range(raise_count):
+            rr = center_r + random.randint(-4, 3)
+            rc = center_c + random.randint(-4, 3)
+            self.raise_corner(rr, rc)
+            
+        self.update_rocks_water()
+
+    def do_swamp(self, center_r, center_c):
+        """Ajoute 20-30 cases swamp sur la map 12x12 centrée."""
+        count = random.randint(20, 30)
+        for _ in range(count):
+            # Zone 12x12 centrée (centré sur 8x8 visible, donc décalage de -2 à +9 approx)
+            # Pour simplifier on fait un gros random autour du centre
+            rr = center_r + random.randint(-6, 5)
+            rc = center_c + random.randint(-6, 5)
+            if 0 <= rr < self.grid_height and 0 <= rc < self.grid_width:
+                # Tester si c'est une case plate (pas de l'eau)
+                a = self.get_corner_altitude(rr, rc)
+                b = self.get_corner_altitude(rr, rc + 1)
+                c = self.get_corner_altitude(rr + 1, rc + 1)
+                d = self.get_corner_altitude(rr + 1, rc)
+                if a == b == c == d and a > 0:
+                    self.swamps.add((rr, rc))
+        
+    def update_rocks_water(self):
+        """Vérifie tous les rochers existants et les supprime si la case est submergée."""
+        to_remove = []
+        for (r, c) in self.rocks.keys():
+            if self.is_water(r, c):
+                to_remove.append((r, c))
+        for rc in to_remove:
+            del self.rocks[rc]
+            
+    def is_water(self, r, c):
+        return self.get_tile_key(r, c) in (TILE_WATER, TILE_WATER_2)
+
+    def do_volcano(self, r, c):
+        """
+        Crée une montagne à la position (r, c).
+        Le terrain monte de 5 immédiatement puis les 9 cases du centre sont randomisées à +/-1.
+        Ajoute également 10-30 rochers dans la zone 8x8 autour du sommet.
+        """
+        # 1. Monter de 5 niveaux avec propagation
+        for _ in range(5):
+            self.raise_corner(r, c)
+            
+        # 2. Randomisation des 9 cases (3x3) du centre
+        for dr in range(-1, 2):
+            for dc in range(-1, 2):
+                nr, nc = r + dr, c + dc
+                if 0 <= nr <= self.grid_height and 0 <= nc <= self.grid_width:
+                    offset = random.choice([-1, 0, 1])
+                    if offset == 1:
+                        self.raise_corner(nr, nc)
+                    elif offset == -1:
+                        self.lower_corner(nr, nc)
+
+        # 3. Ajout de 10-30 rochers dans la zone 8x8 autour
+        num_volcano_rocks = random.randint(10, 30)
+        rock_tiles = [(5, 2), (5, 3), (5, 4)]
+        for _ in range(num_volcano_rocks):
+            # Zone 8x8 centrée (donc -4 à +3 autour de r, c)
+            rr = r + random.randint(-4, 3)
+            rc = c + random.randint(-4, 3)
+            if 0 <= rr < self.grid_height and 0 <= rc < self.grid_width:
+                # On ne place de rochers que s'il n'y a pas d'eau (le volcan crée de la terre)
+                if not self.is_water(rr, rc):
+                    self.rocks[(rr, rc)] = random.choice(rock_tiles)
 
     def get_raise_cost(self, r, c):
         backup = [row[:] for row in self.corners]
@@ -206,6 +303,11 @@ class GameMap:
             self.water_timer -= 0.5
             self.water_frame = 1 - self.water_frame
             self.flag_frame = 1 - self.flag_frame
+        self.water_timer += dt
+        if self.water_timer >= 0.5:
+            self.water_timer -= 0.5
+            self.water_frame = 1 - self.water_frame
+            self.flag_frame = 1 - self.flag_frame
 
     def get_tile_key(self, r, c):
         a0 = self.get_corner_altitude(r, c)
@@ -230,6 +332,10 @@ class GameMap:
             tile_map = SLOPE_TILES
 
         tile = tile_map.get(d, TILE_FLAT)
+
+        if (r, c) in self.swamps:
+            return TILE_SWAMP
+
         if tile == TILE_FLAT:
             for h in self.houses:
                 if (r, c) in getattr(h, 'occupied_tiles', []):
@@ -238,7 +344,7 @@ class GameMap:
                     return TILE_CONSTRUCTED_ALLIES
         return tile
 
-    def draw_tile(self, surface, r, c, cam_r=0, cam_c=0):
+    def draw_tile(self, surface, r, c, cam_r=0, cam_c=0, offset_y=0):
         a0 = self.get_corner_altitude(r, c)
         a1 = self.get_corner_altitude(r, c + 1)
         a2 = self.get_corner_altitude(r + 1, c + 1)
@@ -253,8 +359,9 @@ class GameMap:
         # Le point world_to_screen(r, c, alt) donne le coin NW (sommet haut du losange)
         # Le tile doit être positionné pour que le sommet haut du losange soit centré horizontalement
         sx, sy = self.world_to_screen(r, c, min_alt, cam_r, cam_c)
+        sy += offset_y
         blit_x = sx - TILE_HALF_W
-        if tile_key in (TILE_FLAT, TILE_CONSTRUCTED_ALLIES, TILE_CONSTRUCTED_FOES):
+        if tile_key in (TILE_FLAT, TILE_CONSTRUCTED_ALLIES, TILE_CONSTRUCTED_FOES, TILE_SWAMP):
             blit_y = sy + TILE_HALF_H  # Décale de 8 pixels vers le bas pour les tiles plates
         else:
             blit_y = sy
@@ -271,6 +378,20 @@ class GameMap:
                     surface.blit(flat_surf, (blit_x, blit_y + k * TILE_HALF_H))
 
         surface.blit(tile_surf, (blit_x, blit_y))
+
+        # Dessiner le rocher s'il y en a un sur cette case
+        rock = self.rocks.get((r, c))
+        if rock:
+            rock_surf = self.tile_surfaces.get(rock)
+            if rock_surf:
+                # Calcul de l'altitude du rocher
+                # Si la tile est plate (1, 6) ou construite, on monte le rocher d'un niveau (8px)
+                rock_blit_y = blit_y
+                if tile_key in (TILE_FLAT, TILE_CONSTRUCTED_ALLIES, TILE_CONSTRUCTED_FOES, TILE_SWAMP):
+                    rock_blit_y -= TILE_HALF_H
+                
+                # Les rochers sont des sprites qui se placent sur le tile
+                surface.blit(rock_surf, (blit_x, rock_blit_y))
 
     def screen_to_grid(self, sx, sy, cam_r=0, cam_c=0):
         import settings
@@ -291,7 +412,7 @@ class GameMap:
         end_c = min(self.grid_width, start_c + 8)
         return start_r, end_r, start_c, end_c
 
-    def draw(self, surface, cam_r=0, cam_c=0):
+    def draw(self, surface, cam_r=0, cam_c=0, offset_y=0):
         start_r = int(cam_r)
         start_c = int(cam_c)
         end_r = min(self.grid_height, start_r + 8)
@@ -299,9 +420,13 @@ class GameMap:
 
         for r in range(start_r, end_r):
             for c in range(start_c, end_c):
-                self.draw_tile(surface, r, c, cam_r, cam_c)
+                self.draw_tile(surface, r, c, cam_r, cam_c, offset_y=offset_y)
 
     def get_flat_area_score(self, r, c, current_house=None, is_castle=False):
+        # Ne pas construire sur un marécage
+        if (r, c) in self.swamps:
+            return -1, []
+            
         # Retourne le score basé sur la zone d'influence et la liste des tuiles valid_tiles
         a = self.get_corner_altitude(r, c)
         b = self.get_corner_altitude(r, c + 1)
@@ -345,18 +470,21 @@ class GameMap:
                 
                 nr, nc = r + dr, c + dc
                 if 0 <= nr < self.grid_height and 0 <= nc < self.grid_width:
+                    # Un rocher ou un marécage empêche la tuile d'être comptée dans l'influence/construction
+                    if (nr, nc) in self.rocks or (nr, nc) in self.swamps:
+                        continue
+                        
                     na = self.get_corner_altitude(nr, nc)
                     nb = self.get_corner_altitude(nr, nc + 1)
                     nc_ = self.get_corner_altitude(nr + 1, nc + 1)
                     nd = self.get_corner_altitude(nr + 1, nc)
                     # La tuile doit être plate (coins égaux) et au-dessus de l'eau (>0)
-                    # On ne vérifie plus si l'altitude est égale à base_alt
                     if na == nb == nc_ == nd and na > 0:
                         valid_tiles.append((nr, nc))
                     
         return len(valid_tiles), valid_tiles
 
-    def draw_houses(self, surface, cam_r=0, cam_c=0, show_debug=False, debug_font=None):
+    def draw_houses(self, surface, cam_r=0, cam_c=0, show_debug=False, debug_font=None, offset_y=0):
         start_r = int(cam_r)
         start_c = int(cam_c)
         end_r = min(self.grid_height, start_r + 8)
@@ -398,13 +526,16 @@ class GameMap:
                             tile_surf = self.tile_surfaces.get(tile_key)
                             if tile_surf is not None:
                                 sx, sy = self.world_to_screen(nr, nc, alt, cam_r, cam_c)
+                                sy += offset_y
                                 surface.blit(tile_surf, (sx - TILE_HALF_W, sy))
                 if flag_surf is not None and start_r <= house.r < end_r and start_c <= house.c < end_c:
                     sx, sy = self.world_to_screen(house.r, house.c, self.get_corner_altitude(house.r, house.c), cam_r, cam_c)
+                    sy += offset_y
                     surface.blit(flag_surf, (sx, sy))
                 # Affichage debug vie château (centre)
                 if show_debug and debug_font is not None and start_r <= house.r < end_r and start_c <= house.c < end_c:
                     sx, sy = self.world_to_screen(house.r, house.c, self.get_corner_altitude(house.r, house.c), cam_r, cam_c)
+                    sy += offset_y
                     # Bleu (0,255,255) pour alliés, Violet (255,0,255) pour foes
                     color = (255, 0, 255) if getattr(house, 'team', 'allies') == 'foes' else (0, 255, 255)
                     life_text = debug_font.render(f"{int(house.life)}", True, color)
@@ -419,6 +550,7 @@ class GameMap:
             if tile_surf is None:
                 continue
             sx, sy = self.world_to_screen(house.r, house.c, alt, cam_r, cam_c)
+            sy += offset_y
             blit_x = sx - TILE_HALF_W
             blit_y = sy
             surface.blit(tile_surf, (blit_x, blit_y))
@@ -474,8 +606,22 @@ class GameMap:
                 self.corners[r][c] = base
         self._enforce_height_constraints()
 
+        # Génération des rochers
+        self.rocks.clear()
+        rock_tiles = [(5, 2), (5, 3), (5, 4)]
+        # 100 +/- 100 rochers
+        num_rocks = 100 + random.randint(-50, 50)
+        for _ in range(num_rocks):
+            rr = random.randint(0, self.grid_height - 1)
+            rc = random.randint(0, self.grid_width - 1)
+            if not self.is_water(rr, rc):
+                self.rocks[(rr, rc)] = random.choice(rock_tiles)
+
     def is_flat_and_buildable(self, r, c):
         if r < 0 or c < 0 or r >= self.grid_height or c >= self.grid_width:
+            return False
+        # Un rocher empêche la construction
+        if (r, c) in self.rocks:
             return False
         a = self.get_corner_altitude(r, c)
         b = self.get_corner_altitude(r, c + 1)
@@ -492,6 +638,9 @@ class GameMap:
     def is_flat_and_buildable_any_alt(self, r, c):
         """Identique à is_flat_and_buildable mais ne nécessite pas une altitude spécifique."""
         if r < 0 or c < 0 or r >= self.grid_height or c >= self.grid_width:
+            return False
+        # Un rocher empêche l'influence/construction
+        if (r, c) in self.rocks:
             return False
         a = self.get_corner_altitude(r, c)
         b = self.get_corner_altitude(r, c + 1)

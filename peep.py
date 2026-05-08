@@ -148,6 +148,7 @@ class Peep:
         self.move_progress = 1.0  # 1.0 = sur la tuile cible
         # Historique des positions pour éviter les oscillations
         self.path_history = [(int(self.y), int(self.x))] * 4
+        self.just_swamped = False
         # Pour l'assemble par paire
         self.assemble_role = None  # 'donneur', 'receveur', ou None
         self.assemble_partner = None  # référence vers le partenaire
@@ -533,6 +534,13 @@ class Peep:
             a2 = self.game_map.get_corner_altitude(gr_cur + 1, gc_cur + 1)
             a3 = self.game_map.get_corner_altitude(gr_cur + 1, gc_cur)
             on_water = (a0 == 0 and a1 == 0 and a2 == 0 and a3 == 0)
+            
+            # --- DÉTECTION SWAMP ---
+            if (gr_cur, gc_cur) in self.game_map.swamps and not self.dead:
+                self.dead = True
+                self.death_timer = 0
+                self.just_swamped = True
+                return
         else:
             on_water = False
 
@@ -710,7 +718,7 @@ class Peep:
             return house
         return None
 
-    def draw(self, surface, cam_x=0, cam_y=0, show_debug=False, debug_font=None):
+    def draw(self, surface, cam_x=0, cam_y=0, show_debug=False, debug_font=None, offset_y=0):
         gr, gc = int(self.y), int(self.x)
         fx = self.x - gc  # fraction horizontale dans la tile
         fy = self.y - gr  # fraction verticale dans la tile
@@ -727,6 +735,7 @@ class Peep:
             alt = 0
 
         sx, sy = self.game_map.world_to_screen(self.y, self.x, alt, cam_x, cam_y)
+        sy += offset_y
         # Sol visuel : la coordonnée sy intègre déjà l'altitude (alt * 8)
         ground_y = sy + TILE_HALF_H
 

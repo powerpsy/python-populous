@@ -44,6 +44,7 @@ MAP_OFFSET_Y = SCREEN_HEIGHT // 4
 # === Chemins ===
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 GFX_DIR = os.path.join(BASE_DIR, "data", "gfx")
+SFX_DIR = os.path.join(BASE_DIR, "data", "sfx")
 TILES_PATH = os.path.join(GFX_DIR, "AmigaTiles1.PNG")
 SPRITES_PATH = os.path.join(GFX_DIR, "AmigaSprites1.PNG")
 
@@ -81,6 +82,7 @@ TILE_WATER_2 = (1, 7)       # 2e frame d'animation de l'eau
 TILE_FLAT = (1, 6)
 TILE_CONSTRUCTED_ALLIES = (3, 4)
 TILE_CONSTRUCTED_FOES = (3, 5)
+TILE_SWAMP = (5, 8)
 
 # Tiles pentes pour altitude basse (= 1, juste au-dessus de l'eau)
 # Même ordre de deltas que SLOPE_TILES, de (1,8) à (3,3)
