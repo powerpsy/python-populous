@@ -194,25 +194,10 @@ class Peep:
             self.state_target = target
             self.assemble_role = None
             self.assemble_partner = None
-            # Logique d'appairage pour le combat (similaire à assemble)
-            if hasattr(self.game_map, 'peeps'):
-                # On cherche les ennemis
-                foes = [p for p in self.game_map.peeps if not p.dead and p.team != self.team]
-                allies = [p for p in self.game_map.peeps if not p.dead and p.team == self.team]
-                
-                # On apparie chaque allié à l'ennemi le plus proche
-                for a in allies:
-                    if not foes: break
-                    # Trouver le plus proche
-                    target_foe = min(foes, key=lambda f: math.hypot(f.x - a.x, f.y - a.y))
-                    a.battle_partner = target_foe
-                    a.state = Peep.STATE_CHARGE_ENEMY
-                    
-                    # L'ennemi ciblé s'arrête pour attendre
-                    if target_foe.state not in (Peep.STATE_BATTLE, Peep.STATE_VICTORY_BEFORE, Peep.STATE_VICTORY_MAIN):
-                        target_foe.state = Peep.STATE_WAIT_FOR_ENEMY
-                        target_foe.battle_partner = a
-                        target_foe.move_progress = 1.0
+            # Logique d'appairage pour le combat uniquement pour l'équipe ALLIÉE
+            # NOTE: On ne force plus Peep.STATE_CHARGE_ENEMY ici pour tous les alliés,
+            # car si un allié n'a pas d'ennemi à portée raisonnable, il s'arrête.
+            # On laisse le mode STATE_FIGHT gérer la recherche de cibles globales.
         else:
             self.state = Peep.STATE_WANDER
             self.state_target = None
@@ -321,53 +306,50 @@ class Peep:
                 # Sinon on est le DONNEUR, on se dirige vers le partenaire.
                 tr, tc = int(self.assemble_partner.y), int(self.assemble_partner.x)
             elif self.state == Peep.STATE_FIGHT:
-                # magnet to enemy
+                # magnet to enemy peep OR enemy house
                 target = None
                 min_dist = float('inf')
                 if hasattr(self.game_map, 'peeps'):
+                    # Chercher le peep ennemi le plus proche
                     for other in self.game_map.peeps:
-                        if not other.dead and other is not self:
+                        if not other.dead and other.team != self.team:
                             dist = math.hypot(other.x - self.x, other.y - self.y)
                             if dist < min_dist:
                                 min_dist = dist
                                 target = (int(other.y), int(other.x))
-                tr, tc = target if target else (r0, c0)
+                    
+                    # Chercher aussi le bâtiment ennemi le plus proche
+                    for house in self.game_map.houses:
+                        if not house.destroyed and house.team != self.team:
+                            # Distance au centre du bâtiment
+                            dist = math.hypot(house.c + 0.5 - self.x, house.r + 0.5 - self.y)
+                            if dist < min_dist:
+                                min_dist = dist
+                                target = (house.r, house.c)
+                
+                if target:
+                    tr, tc = target
+                else:
+                    # NOUVEAU : Si aucun ennemi n'est trouvé, on se comporte comme en mode WANDER/BUILD
+                    # On repasse temporairement l'état à BUILD pour réutiliser sa logique de mouvement
+                    old_state = self.state
+                    self.state = Peep.STATE_BUILD
+                    next_tile = self._choose_next_tile()
+                    self.state = old_state
+                    return next_tile
             else:
                 tr, tc = self.state_target if self.state_target else (r0, c0)
 
-            if (tr, tc) == (r0, c0):
-                return (r0, c0)
-
-            # Move towards target minimizing distance
-        # PRIORITÉ : Si on est déjà à côté de la cible en mode ASSEMBLE ou CHARGE, on y va directement
-        # pour éviter les oscillations de pathfinding sur les diagonales.
-        if self.state in (Peep.STATE_ASSEMBLE, Peep.STATE_CHARGE_ENEMY):
-            # EN ASSEMBLE ou CHARGE, on doit pouvoir marcher sur les tuiles occupées
-            # par les maisons pour permettre la fusion physique ou le combat.
-            # Si le partenaire est sur une case adjacente, on y va tout droit.
+            # --- CORRECTION PATHFINDING MAGNÉTIQUE ---
+            # Si on est déjà à côté de la cible, on y va directement (pour ASSEMBLE, CHARGE, FIGHT, PAPAL)
             if abs(tr - r0) <= 1 and abs(tc - c0) <= 1:
                 return (tr, tc)
 
-                # Sinon, recherche de la meilleure direction (plus proche de la cible)
-                directions = [(0, 1), (1, 1), (1, 0), (1, -1), (0, -1), (-1, -1), (-1, 0), (-1, 1)]
-                best_dist = float('inf')
-                best_tile = (r0, c0)
-                for dr, dc in directions:
-                    nr, nc = r0 + dr, c0 + dc
-                    if 0 <= nr < self.game_map.grid_height and 0 <= nc < self.game_map.grid_width:
-                        # En ASSEMBLE, on ignore les maisons (mais pas le vide/eau)
-                        alt = self.game_map.get_corner_altitude(nr, nc)
-                        if alt > 0:
-                            dist = math.hypot(nc - tc, nr - tr)
-                            if dist < best_dist:
-                                best_dist = dist
-                                best_tile = (nr, nc)
-                return best_tile
-
-            # Logique pour les autres modes (FIGHT, PAPAL) qui doivent peut-être encore éviter les maisons
+            # Recherche de la meilleure direction (plus proche de la cible)
             directions = [(0, 1), (1, 1), (1, 0), (1, -1), (0, -1), (-1, -1), (-1, 0), (-1, 1)]
             best_dist = float('inf')
             best_tile = (r0, c0)
+            
             for dr, dc in directions:
                 nr, nc = r0 + dr, c0 + dc
                 if 0 <= nr < self.game_map.grid_height and 0 <= nc < self.game_map.grid_width:
@@ -502,6 +484,18 @@ class Peep:
 
         self.tile_from = (int(self.y), int(self.x))
         self.tile_to = self._choose_next_tile()
+        
+        # Correction : Si on commence à attendre sur une tuile d'eau, on force le naufrage immédiatement
+        # en ne permettant plus de mouvement (move_progress reste à 1.0)
+        gr_cur, gc_cur = int(self.y), int(self.x)
+        if (0 <= gr_cur < self.game_map.grid_height and 0 <= gc_cur < self.game_map.grid_width):
+            a0 = self.game_map.get_corner_altitude(gr_cur,     gc_cur)
+            a1 = self.game_map.get_corner_altitude(gr_cur,     gc_cur + 1)
+            a2 = self.game_map.get_corner_altitude(gr_cur + 1, gc_cur + 1)
+            a3 = self.game_map.get_corner_altitude(gr_cur + 1, gc_cur)
+            if a0 == 0 and a1 == 0 and a2 == 0 and a3 == 0:
+                self.tile_to = (gr_cur, gc_cur)
+
         self.move_progress = 0.0 if self.tile_to != self.tile_from else 1.0
 
 
@@ -515,6 +509,13 @@ class Peep:
         if self.state == Peep.STATE_CHARGE_ENEMY:
             if self.battle_partner and not self.battle_partner.dead:
                 dist = math.hypot(self.battle_partner.x - self.x, self.battle_partner.y - self.y)
+                
+                # Dynamic Wait: Si l'allié est proche (ex: < 2 cases), on demande à l'ennemi d'attendre
+                if dist < 2.0 and self.battle_partner.state not in (Peep.STATE_BATTLE, Peep.STATE_VICTORY_BEFORE, Peep.STATE_VICTORY_MAIN, Peep.STATE_WAIT_FOR_ENEMY):
+                    self.battle_partner.state = Peep.STATE_WAIT_FOR_ENEMY
+                    self.battle_partner.battle_partner = self
+                    self.battle_partner.move_progress = 1.0
+
                 if dist < 0.6:
                     self.state = Peep.STATE_BATTLE
                     self.state_timer = 0.0
@@ -545,7 +546,8 @@ class Peep:
             on_water = False
 
         # Perte de vie : 1 point par seconde (plus rapide dans l'eau ?)
-        self.life -= dt * (2.0 if on_water else 1.0)
+        # Si on est dans l'eau (on_water), on meurt beaucoup plus vite (noyade active)
+        self.life -= dt * (25.0 if on_water else 1.0)
         if self.life <= 0:
             self.life = 0
             self.dead = True
@@ -565,6 +567,41 @@ class Peep:
                 self.move_progress = 1.0
                 self.x = self.tile_to[1] + 0.5
                 self.y = self.tile_to[0] + 0.5
+                
+                # NOUVEAU : Si on arrive sur une tuile avec un bâtiment ALLIÉ, on rentre dedans
+                # Condition : état WANDER et on n'est pas sur l'eau
+                if self.state == Peep.STATE_WANDER:
+                    gr, gc = int(self.y), int(self.x)
+                    for h in self.game_map.houses:
+                        if not h.destroyed and (gr, gc) in h.occupied_tiles:
+                            if h.team == self.team:
+                                # Entrer dans le bâtiment : on ajoute notre vie au bâtiment
+                                h.life = min(h.max_life, h.life + self.life)
+                                # On transfère le shield si on l'a
+                                if self.has_shield:
+                                    h.has_shield = True
+                                self.life = 0
+                                self.dead = True
+                                self.in_house = True
+                                break
+                
+                # NOUVEAU : Fusion immédiate avec les alliés sur la même case lors du mouvement
+                # (Sauf si on est déjà en train de mourir ou en bataille)
+                if not self.dead and self.state not in (Peep.STATE_BATTLE, Peep.STATE_VICTORY_BEFORE, Peep.STATE_VICTORY_MAIN):
+                    gr, gc = int(self.y), int(self.x)
+                    if hasattr(self.game_map, 'peeps'):
+                        for other in self.game_map.peeps:
+                            if other is not self and not other.dead and other.team == self.team:
+                                # Si sur la même case et que l'un des deux accepte la fusion (préférence pour le plus fort garde la vie)
+                                if int(other.y) == gr and int(other.x) == gc:
+                                    # Le peep avec le moins d'ID 'donne' sa vie à l'autre pour éviter les doubles fusions
+                                    if id(self) < id(other):
+                                        other.life = min(0x7D00, other.life + self.life)
+                                        if self.has_shield:
+                                            other.has_shield = True
+                                        self.life = 0
+                                        self.dead = True
+                                        break
             else:
                 # Interpolation linéaire
                 y0, x0 = self.tile_from
@@ -638,6 +675,10 @@ class Peep:
         self.build_timer += dt
 
     def try_build_house(self):
+        # NOUVEAU : En mode PAPAL (ou tout autre mode sauf WANDER/BUILD), on ne construit pas
+        if self.state != self.STATE_BUILD and self.state != self.STATE_WANDER:
+            return None
+
         # On réduit le timer de build pour plus de réactivité si on est sur une bonne case
         gr, gc = int(self.y), int(self.x)
         score_normal, _ = self.game_map.get_flat_area_score(gr, gc, current_house=None, is_castle=False)

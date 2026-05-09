@@ -628,9 +628,9 @@ class Game:
                         peep.assemble_role = None
                         peep.assemble_partner = None
                 for peep in self.peeps:
-                    if not peep.dead:
+                    if not peep.dead and peep.team == 'allies':
                         peep.set_command(self.active_peep_command, self.active_peep_target)
-                print(f"Commande {action} activée (persistante) pour tous les peeps.")
+                print(f"Commande {action} activée (persistante) pour tous les peeps alliés.")
             else:
                 print(f"Pouvoir sélectionné (en attente d'implémentation) : {action}")
 
@@ -717,6 +717,12 @@ class Game:
                                     self.power_jauge['allies'] -= self.POWER_COSTS['_do_papal']
                                     # Place/déplace le papal (un seul possible) sur la case au nord-ouest (NW)
                                     self.papal_position = (max(r - 1, 0), max(c - 1, 0))
+                                    self.active_peep_target = self.papal_position
+                                    # Forcer la mise à jour des commandes pour tous les peeps alliés si on est déjà en mode _go_papal
+                                    if self.active_peep_command == '_go_papal':
+                                        for peep in self.peeps:
+                                            if not peep.dead and peep.team == 'allies':
+                                                peep.set_command('_go_papal', self.papal_position)
                                     self.papal_mode = False  # Désactive le mode après un clic
                                 else:
                                     print("Pas assez de power pour papal !")
@@ -760,10 +766,13 @@ class Game:
                 self.view_who = new_peep
                 self.view_type = 'peep'
         
-        if self.active_peep_command:
+        if self.active_peep_command and team == 'allies':
             new_peep.set_command(self.active_peep_command, self.active_peep_target)
             if self.active_peep_command == '_go_assemble':
                 self._force_assemble_recompute = True
+        else:
+            # Les ennemis ou les alliés sans commande active spawn par défaut en mode build
+            new_peep.set_command('_go_build')
                 
         return new_peep
 
@@ -878,6 +887,39 @@ class Game:
                         self.shield_target = None
 
             if not peep.dead:
+                # NOUVEAU : Combat Peep vs Bâtiment adverse
+                # Un peep en WANDER, FIGHT ou PAPAL qui touche un bâtiment adverse lance un combat
+                if peep.state in ('wander', 'fight', 'papal'):
+                    gr, gc = int(peep.y), int(peep.x)
+                    for h in self.game_map.houses:
+                        if not h.destroyed and (gr, gc) in h.occupied_tiles and h.team != peep.team:
+                            # Combat : on simule un échange de vie
+                            # On utilise une vitesse de combat (ex: 20 pts/sec)
+                            combat_damage = dt * 20.0
+                            
+                            # Le bâtiment perd de la vie
+                            h.life -= combat_damage
+                            # Le peep perd de la vie proportionnellement (le bâtiment se défend avec sa puissance)
+                            peep.life -= combat_damage * 0.5
+                            
+                            # Si le bâtiment arrive à 0, il est converti
+                            if h.life <= 0:
+                                h.team = peep.team
+                                h.life = max(1.0, peep.life * 0.5) # Le bâtiment redémarre avec une fraction de la vie du conquérant
+                                if peep_had_shield:
+                                    h.has_shield = True
+                                    self.shield_target = h
+                                peep.life = 0
+                                peep.dead = True
+                                peep.in_house = True
+                                break # Le peep est entré/mort dans le bâtiment
+                            
+                            # Si le peep meurt avant, le bâtiment reste à l'ennemi avec sa vie actuelle
+                            if peep.life <= 0:
+                                peep.life = 0
+                                peep.dead = True
+                                break
+
                 new_house = peep.try_build_house()
                 if new_house is not None:
                     # Si le peep avait le shield, on le transfère à la nouvelle maison

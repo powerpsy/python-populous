@@ -88,3 +88,5 @@ v0.2.2
 55. Add god power: flood
 56. Add god power: quake
 57. Add god power: swamps
+v0.2.3
+58. review go_papal & go_assemble to allow only one faction to change behaviour (all peeps went go_papal if selected !)
