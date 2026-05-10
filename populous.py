@@ -8,6 +8,7 @@ from peep import Peep
 from house import House
 from camera import Camera
 from minimap import Minimap
+from ai_player import AIPlayer
 
 class Game:
     def move_camera_direction(self, direction):
@@ -20,10 +21,18 @@ class Game:
         self.dpad_repeat_delay = 0.2  # secondes entre scrolls
         self.dpad_last_flash_time = 0.0  # timestamp du dernier scroll
         self.papal_mode = False
-        self.papal_position = (GRID_HEIGHT // 2, GRID_WIDTH // 2)  # Un seul papal, centré au début
+        # Ralliement papal pour chaque faction
+        self.papal_position = {
+            'allies': (GRID_HEIGHT // 2, GRID_WIDTH // 2),
+            'foes': (GRID_HEIGHT // 2, GRID_WIDTH // 2)
+        }
         self.shield_mode = False  # Mode blason/shield
         self.volcano_mode = False # Mode volcan
-        self.shield_target = None  # Entité actuellement "blasonnée"
+        # Blason pour chaque faction
+        self.shield_target = {
+            'allies': None,
+            'foes': None
+        }
 
         pygame.init()
         self.clock = pygame.time.Clock()
@@ -97,7 +106,7 @@ class Game:
         }
         self.peeps = []
         self.running = True
-        self.show_debug = True
+        self.show_debug = False
         self.show_scanlines = False
         
         # --- Chargement des sons ---
@@ -108,18 +117,18 @@ class Game:
                 self.sounds[sfx_name] = pygame.mixer.Sound(wav_path)
         
         self.power_jauge = {'allies': 0.0, 'foes': 0.0}
-        self.power_max = {'allies': 0.0, 'foes': 0.0}
+        self.power_max = {'allies': 100.0, 'foes': 100.0}
         self.POWER_COSTS = {
             '_raise_terrain': 1,
             '_lower_terrain': 1,
-            '_do_papal': 10,
-            '_do_quake': 5, #100
-            '_do_swamp': 5, #200
-            '_do_knight': 5, #300
-            '_do_volcano': 5, #500
-            '_do_flood': 5, #1200
-            '_battle_over': 5, #2000
-            '_do_shield': 0,
+            '_do_papal': 50,
+            '_do_quake': 300,
+            '_do_swamp': 200,
+            '_do_knight': 350,
+            '_do_volcano': 400,
+            '_do_flood': 500,
+            '_battle_over': 600,
+            '_do_shield': 150,
         }
         
         self.view_who = None
@@ -127,14 +136,24 @@ class Game:
         self.view_type = None
         self.scanline_surface = None
         self._update_scanline_surface()
-        # Commande peep active (par défaut _go_build)
-        self.active_peep_command = '_go_build'
-        self.active_peep_target = (self.game_map.grid_height // 2, self.game_map.grid_width // 2)
+        # Commandes peeps actives par faction
+        self.active_peep_command = {
+            'allies': '_go_build',
+            'foes': '_go_build'
+        }
+        self.active_peep_target = {
+            'allies': (self.game_map.grid_height // 2, self.game_map.grid_width // 2),
+            'foes': (self.game_map.grid_height // 2, self.game_map.grid_width // 2)
+        }
 
         # --- Variables pour le tremblement de terre ---
         self.quake_timer = 0.0
         self.quake_shake_y = 0
         self.quake_target = None # (r, c)
+
+        # Activer l'IA
+        self.ai = AIPlayer(self, 'foes')
+        self.ai.set_difficulty(reaction_speed=1.5, power_rate=15.0, command_rate=20.0)
 
         # --- Initialisation des zones interactives de l'interface ---
         cx, cy = 64, 168 # Centre de base
@@ -376,7 +395,7 @@ class Game:
 
     def _draw_shield_panel(self, surface):
         # On utilise en priorité l'entité qui possède le shield, sinon la sélection courante
-        target = self.shield_target
+        target = self.shield_target['allies']
         target_type = None
         
         if target is not None:
@@ -574,38 +593,39 @@ class Game:
             else:
                 print("Pas assez de power pour marécage !")
         elif action == '_find_papal':
-            if self.papal_position:
-                r, c = self.papal_position
+            if self.papal_position['allies']:
+                r, c = self.papal_position['allies']
                 self.camera.center_on(r, c)
                 print(f"Caméra centrée sur le papal ({r}, {c})")
         elif action == '_find_shield':
-            if self.shield_target is not None:
+            if self.shield_target['allies'] is not None:
+                target = self.shield_target['allies']
                 # La cible peut être un Peep (x, y) ou une House (r, c)
-                r = getattr(self.shield_target, 'y', getattr(self.shield_target, 'r', None))
-                c = getattr(self.shield_target, 'x', getattr(self.shield_target, 'c', None))
+                r = getattr(target, 'y', getattr(target, 'r', None))
+                c = getattr(target, 'x', getattr(target, 'c', None))
                 if r is not None and c is not None:
                     self.camera.center_on(r, c)
                     # Forcer la vue sur l'unité
-                    self.view_who = self.shield_target
-                    self.view_type = 'peep' if isinstance(self.shield_target, Peep) else 'house'
+                    self.view_who = target
+                    self.view_type = 'peep' if isinstance(target, Peep) else 'house'
                     print(f"Caméra centrée sur le shield ({r}, {c})")
         else:
             # Commandes de déplacement peep : activation exclusive
             if action in ['_go_build', '_go_assemble', '_go_papal', '_go_fight']:
                 # Ne rien faire si la commande est déjà active
-                if self.active_peep_command == action and (
-                    (action != '_go_papal') or (self.active_peep_target == self.papal_position)
+                if self.active_peep_command['allies'] == action and (
+                    (action != '_go_papal') or (self.active_peep_target['allies'] == self.papal_position['allies'])
                 ):
                     print(f"Commande {action} déjà active, aucune modification.")
                     return
-                self.active_peep_command = action
+                self.active_peep_command['allies'] = action
                 if action == '_go_papal':
-                    self.active_peep_target = self.papal_position
+                    self.active_peep_target['allies'] = self.papal_position['allies']
                 else:
-                    self.active_peep_target = None
+                    self.active_peep_target['allies'] = None
                 # Attribution des rôles et partenaires pour _go_assemble
                 if action == '_go_assemble':
-                    peeps = [p for p in self.peeps if not p.dead]
+                    peeps = [p for p in self.peeps if not p.dead and p.team == 'allies']
                     # On apparie par proximité pour plus de réactivité
                     available = set(peeps)
                     while len(available) >= 2:
@@ -625,11 +645,12 @@ class Game:
                         p_last.assemble_partner = None
                 else:
                     for peep in self.peeps:
-                        peep.assemble_role = None
-                        peep.assemble_partner = None
+                        if peep.team == 'allies':
+                            peep.assemble_role = None
+                            peep.assemble_partner = None
                 for peep in self.peeps:
                     if not peep.dead and peep.team == 'allies':
-                        peep.set_command(self.active_peep_command, self.active_peep_target)
+                        peep.set_command(self.active_peep_command['allies'], self.active_peep_target['allies'])
                 print(f"Commande {action} activée (persistante) pour tous les peeps alliés.")
             else:
                 print(f"Pouvoir sélectionné (en attente d'implémentation) : {action}")
@@ -686,11 +707,11 @@ class Game:
                     if event.button == 1:
                         if self._select_view_target(mx, my):
                             # Retirer le shield de l'ancienne cible si elle existe
-                            if self.shield_target is not None:
-                                setattr(self.shield_target, 'has_shield', False)
+                            if self.shield_target['allies'] is not None:
+                                setattr(self.shield_target['allies'], 'has_shield', False)
                             
-                            self.shield_target = self.view_who
-                            setattr(self.shield_target, 'has_shield', True)
+                            self.shield_target['allies'] = self.view_who
+                            setattr(self.shield_target['allies'], 'has_shield', True)
                             self.shield_mode = False
                         return
                     elif event.button == 3:
@@ -716,13 +737,13 @@ class Game:
                                 if self.power_jauge['allies'] >= self.POWER_COSTS['_do_papal']:
                                     self.power_jauge['allies'] -= self.POWER_COSTS['_do_papal']
                                     # Place/déplace le papal (un seul possible) sur la case au nord-ouest (NW)
-                                    self.papal_position = (max(r - 1, 0), max(c - 1, 0))
-                                    self.active_peep_target = self.papal_position
+                                    self.papal_position['allies'] = (max(r - 1, 0), max(c - 1, 0))
+                                    self.active_peep_target['allies'] = self.papal_position['allies']
                                     # Forcer la mise à jour des commandes pour tous les peeps alliés si on est déjà en mode _go_papal
-                                    if self.active_peep_command == '_go_papal':
+                                    if self.active_peep_command['allies'] == '_go_papal':
                                         for peep in self.peeps:
                                             if not peep.dead and peep.team == 'allies':
-                                                peep.set_command('_go_papal', self.papal_position)
+                                                peep.set_command('_go_papal', self.papal_position['allies'])
                                     self.papal_mode = False  # Désactive le mode après un clic
                                 else:
                                     print("Pas assez de power pour papal !")
@@ -758,17 +779,17 @@ class Game:
         new_peep.weapon_type = getattr(house, 'building_type', 'hut')
         new_peep.life = house.max_life
         
-        if transfer_shield and (getattr(house, 'has_shield', False) or self.shield_target == house):
+        if transfer_shield and (getattr(house, 'has_shield', False) or self.shield_target.get(team) == house):
             new_peep.has_shield = True
             house.has_shield = False
-            self.shield_target = new_peep
+            self.shield_target[team] = new_peep
             if self.view_who == house:
                 self.view_who = new_peep
                 self.view_type = 'peep'
         
-        if self.active_peep_command and team == 'allies':
-            new_peep.set_command(self.active_peep_command, self.active_peep_target)
-            if self.active_peep_command == '_go_assemble':
+        if self.active_peep_command[team]:
+            new_peep.set_command(self.active_peep_command[team], self.active_peep_target[team])
+            if self.active_peep_command[team] == '_go_assemble':
                 self._force_assemble_recompute = True
         else:
             # Les ennemis ou les alliés sans commande active spawn par défaut en mode build
@@ -796,10 +817,10 @@ class Game:
                 self.power_jauge[team] = self.power_max[team]
 
         # Recalcul de l'assemblage si nécessaire (ex: après spawn d'un peep)
-        if getattr(self, '_force_assemble_recompute', False) and self.active_peep_command == '_go_assemble':
+        if getattr(self, '_force_assemble_recompute', False) and self.active_peep_command['allies'] == '_go_assemble':
             self._force_assemble_recompute = False
             # On réutilise la logique de _go_assemble par proximité
-            peeps = [p for p in self.peeps if not p.dead]
+            peeps = [p for p in self.peeps if not p.dead and p.team == 'allies']
             available = set(peeps)
             while len(available) >= 2:
                 p1 = available.pop()
@@ -813,8 +834,12 @@ class Game:
             
             # Mettre à jour les commandes des nouveaux peeps
             for peep in self.peeps:
-                if not peep.dead:
-                    peep.set_command(self.active_peep_command, self.active_peep_target)
+                if not peep.dead and peep.team == 'allies':
+                    peep.set_command(self.active_peep_command['allies'], self.active_peep_target['allies'])
+                    
+        # Update AI
+        if getattr(self, 'ai', None):
+            self.ai.update(dt)
 
         if self.dpad_held_direction:
             self.dpad_held_timer -= dt
@@ -875,16 +900,16 @@ class Game:
                 # Mais il faut s'assurer que self.shield_target pointe vers le survivant.
                 # Cependant, peep.update() ne connaît pas self.shield_target.
                 # On fait une vérification de sécurité ici :
-                if self.shield_target == peep:
+                if self.shield_target[peep.team] == peep:
                     found_new = False
                     # On cherche si un peep vivant a maintenant le shield
                     for p in self.peeps:
-                        if not p.dead and getattr(p, 'has_shield', False):
-                            self.shield_target = p
+                        if not p.dead and getattr(p, 'has_shield', False) and p.team == peep.team:
+                            self.shield_target[peep.team] = p
                             found_new = True
                             break
                     if not found_new:
-                        self.shield_target = None
+                        self.shield_target[peep.team] = None
 
             if not peep.dead:
                 # NOUVEAU : Combat Peep vs Bâtiment adverse
@@ -908,7 +933,7 @@ class Game:
                                 h.life = max(1.0, peep.life * 0.5) # Le bâtiment redémarre avec une fraction de la vie du conquérant
                                 if peep_had_shield:
                                     h.has_shield = True
-                                    self.shield_target = h
+                                    self.shield_target[peep.team] = h
                                 peep.life = 0
                                 peep.dead = True
                                 peep.in_house = True
@@ -925,7 +950,7 @@ class Game:
                     # Si le peep avait le shield, on le transfère à la nouvelle maison
                     if peep_had_shield:
                         new_house.has_shield = True
-                        self.shield_target = new_house
+                        self.shield_target[peep.team] = new_house
                     
                     if self.view_type == 'peep' and self.view_who == peep:
                         self.view_who = new_house
@@ -972,7 +997,7 @@ class Game:
         self.internal_surface.blit(self.ui_image, (0, 0))
 
         # Affichage permanent du bouton actif (_go_build, _go_assemble, _go_papal, _go_fight)
-        active_btn = self.active_peep_command
+        active_btn = self.active_peep_command['allies']
         idx = self.button_sprite_indices.get(active_btn)
         if idx is not None and idx < len(self.button_sprites):
             shape = self.ui_buttons.get(active_btn)
@@ -1010,15 +1035,18 @@ class Game:
 
         # --- Affichage du papal (tile 5,0) après maisons et peeps ---
         papal_tile = self.game_map.tile_surfaces.get((5, 0))
-        if papal_tile and self.papal_position is not None:
-            r, c = self.papal_position
-            start_r, end_r, start_c, end_c = self.game_map.get_visible_bounds(cam_r, cam_c)
-            if start_r <= r < end_r and start_c <= c < end_c:
-                alt = self.game_map.get_corner_altitude(r, c)
-                sx, sy = self.game_map.world_to_screen(r, c, alt, cam_r, cam_c)
-                blit_x = sx - TILE_HALF_W
-                blit_y = sy + offset_y
-                self.internal_surface.blit(papal_tile, (blit_x, blit_y))
+        if papal_tile:
+            for team, pos in self.papal_position.items():
+                if pos is not None:
+                    r, c = pos
+                    start_r, end_r, start_c, end_c = self.game_map.get_visible_bounds(cam_r, cam_c)
+                    if start_r <= r < end_r and start_c <= c < end_c:
+                        alt = self.game_map.get_corner_altitude(r, c)
+                        sx, sy = self.game_map.world_to_screen(r, c, alt, cam_r, cam_c)
+                        blit_x = sx - TILE_HALF_W
+                        blit_y = sy + offset_y
+                        # TODO: coloriser le papal en fonction de la team
+                        self.internal_surface.blit(papal_tile, (blit_x, blit_y))
 
         if self.view_who is not None and self.view_type is not None:
             r = getattr(self.view_who, 'y', getattr(self.view_who, 'r', -1))

@@ -1,14 +1,14 @@
 TODO ----------------------------------------------------------------------------------------------
 
-* v2 Create god foe (the computer plays the game against you)
+
 * v2 create leader when getting papal (carries the cross / evil sign)
 * v2 Update powerjauge with a non linear progression linked to the POWER_COST matrix
 * v2 Add god power: knight
 * v2 Add god power: war
-* v3 Add sound to actions/powers/combat
-* v4 Add a map generator (using a simple "key" to generate x/y peeps in different locations and different terrain typologies) --> simulate reproducible random maps as in the original game
-* v4 Add a home page and game mode/password selection
-* v4 Add a gameover page
+* v4 Add sound to actions/powers/combat
+* v5 Add a map generator (using a simple "key" to generate x/y peeps in different locations and different terrain typologies) --> simulate reproducible random maps as in the original game
+* v5 Add a home page and game mode/password selection
+* v5 Add a gameover page
 * v2 update battle outcome with weapon + ramdomness
 * v2 Add trees + logic to remove
 * v9+ Add internet multiplayer
@@ -90,3 +90,5 @@ v0.2.2
 57. Add god power: swamps
 v0.2.3
 58. review go_papal & go_assemble to allow only one faction to change behaviour (all peeps went go_papal if selected !)
+v0.3.0
+59. Create god foe (the computer plays the game against you)
