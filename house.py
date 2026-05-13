@@ -22,6 +22,7 @@ class House:
         self.destroyed = False
         self.occupied_tiles = []
         self.has_shield = False
+        self.has_leader = False
 
     def update(self, dt, game_map):
         # On vérifie d'abord si on est un Castle (Tier 9) ou si on peut le devenir

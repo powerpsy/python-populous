@@ -90,6 +90,24 @@ VICTORY_ALLIE_MAIN = [(5, 0), (5, 1), (5, 2), (5, 3)] # Anim victoire 0.5s
 VICTORY_FOE_BEFORE = [(1, 8), (1, 9)]
 VICTORY_FOE_MAIN = [(5, 4), (5, 5), (5, 6), (5, 7)]
 
+KNIGHT_FRAMES = {
+    'N':      [(2,  0), (2,  1)],
+    'NE':     [(2,  2), (2,  3)],
+    'E':      [(2,  4), (2,  5)],
+    'SE':     [(2,  6), (2,  7)],
+    'S':      [(2,  8), (2,  9)],
+    'SW':     [(2, 10), (2, 11)],
+    'W':      [(2, 12), (2, 13)],
+    'NW':     [(2, 14), (2, 15)],
+    'IDLE':   [(2,  8), (2,  9)],
+    'WAIT':   [(7,  8), (7,  9)],
+    'DROWN':  [(6,  8), (6,  9), (6, 10), (6, 11)],
+}
+
+BATTLE_KNIGHT_FOE = [(7, 12), (7, 13), (7, 14), (7, 15)]
+BATTLE_KNIGHT_KNIGHT = [(8, 4), (8, 5), (8, 6), (8, 7)]
+VICTORY_KNIGHT = [(7, 0), (7, 1), (7, 2), (7, 3)]
+
 # Export pour usage externe
 PEEP_WALK_FRAMES = WALK_FRAMES
 
@@ -153,10 +171,19 @@ class Peep:
         self.assemble_role = None  # 'donneur', 'receveur', ou None
         self.assemble_partner = None  # référence vers le partenaire
         self.has_shield = False
+        self.is_leader = False
+        self.is_knight = False
+        self.merged_leader = False
+        self.in_house_leader = False
         self.battle_partner = None
 
     def set_command(self, command, target=None):
         """Change l'état du peep selon la commande reçue."""
+        if getattr(self, 'is_knight', False):
+            # Un chevalier reste imperturbablement en mode _go_fight
+            command = '_go_fight'
+            target = None
+        
         # On réinitialise le timer de build lors d'un changement de commande pour ne pas build instantanément
         self.build_timer = 0.0
         
@@ -460,6 +487,10 @@ class Peep:
                         if self.has_shield or getattr(self.assemble_partner, 'has_shield', False):
                             self.assemble_partner.has_shield = True
                             self.has_shield = False # UNICITÉ : le donneur perd son shield
+                        if getattr(self, 'is_leader', False) or getattr(self.assemble_partner, 'is_leader', False):
+                            self.assemble_partner.is_leader = True
+                            self.merged_leader = getattr(self, 'is_leader', False)
+                            self.is_leader = False
                         self.life = 0
                         self.dead = True
                         # Si le partenaire était aussi donneur (cas rare de réassignation), on force le rôle
@@ -580,6 +611,9 @@ class Peep:
                                 # On transfère le shield si on l'a
                                 if self.has_shield:
                                     h.has_shield = True
+                                if self.is_leader:
+                                    h.has_leader = True
+                                    self.in_house_leader = True
                                 self.life = 0
                                 self.dead = True
                                 self.in_house = True
@@ -594,11 +628,31 @@ class Peep:
                             if other is not self and not other.dead and other.team == self.team:
                                 # Si sur la même case et que l'un des deux accepte la fusion (préférence pour le plus fort garde la vie)
                                 if int(other.y) == gr and int(other.x) == gc:
-                                    # Le peep avec le moins d'ID 'donne' sa vie à l'autre pour éviter les doubles fusions
-                                    if id(self) < id(other):
-                                        other.life = min(0x7D00, other.life + self.life)
+                                    # Détermination de qui donne et qui reçoit
+                                    donor = None
+                                    receiver = None
+                                    
+                                    # Le leader est prioritaire pour recevoir
+                                    if self.is_leader and not other.is_leader:
+                                        donor = other
+                                        receiver = self
+                                    elif other.is_leader and not self.is_leader:
+                                        donor = self
+                                        receiver = other
+                                    else:
+                                        # Sinon, résolution par ID pour éviter les fusions annulées
+                                        if id(self) < id(other):
+                                            donor = self
+                                            receiver = other
+
+                                    # On n'applique la fusion que depuis le point de vue du donneur
+                                    if donor is self:
+                                        receiver.life = min(0x7D00, receiver.life + self.life)
                                         if self.has_shield:
-                                            other.has_shield = True
+                                            receiver.has_shield = True
+                                        if self.is_leader:
+                                            receiver.is_leader = True
+                                            self.merged_leader = True
                                         self.life = 0
                                         self.dead = True
                                         break
@@ -782,8 +836,14 @@ class Peep:
 
         sprites = self.get_sprites()
         
+        is_knight = getattr(self, 'is_knight', False)
+        
         # Sélection du set d'animations selon l'équipe
-        if self.team == 'foes':
+        if is_knight:
+             frames_set = KNIGHT_FRAMES
+             victory_before = VICTORY_KNIGHT
+             victory_main = VICTORY_KNIGHT
+        elif self.team == 'foes':
              frames_set = FOE_WALK_FRAMES
              victory_before = VICTORY_FOE_BEFORE
              victory_main = VICTORY_FOE_MAIN
@@ -795,7 +855,13 @@ class Peep:
         if self.state == Peep.STATE_BATTLE:
             # Pour la bataille, seul l'allié affiche l'animation globale
             if self.team == 'allies':
-                frames = BATTLE_FRAMES
+                if is_knight:
+                    if getattr(self.battle_partner, 'is_knight', False):
+                        frames = BATTLE_KNIGHT_KNIGHT
+                    else:
+                        frames = BATTLE_KNIGHT_FOE
+                else:
+                    frames = BATTLE_FRAMES
             else:
                 return # Le foe est caché car fusionné dans le sprite de l'allié
         elif self.state == Peep.STATE_VICTORY_BEFORE:

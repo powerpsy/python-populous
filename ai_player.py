@@ -95,7 +95,7 @@ class AIPlayer:
     def do_power_action(self):
         self.power_timer = 0.0
         # Utilisation des pouvoirs (do_papal, flood, volcano, quake, knight)
-        actions = ['_do_quake', '_do_swamp', '_do_volcano', '_do_flood']
+        actions = ['_do_papal', '_do_knight', '_do_quake', '_do_swamp', '_do_volcano', '_do_flood']
         
         # Filtrer en fonction du coût énergétique par rapport à la jauge max
         # On suppose que l'IA économise
@@ -119,10 +119,22 @@ class AIPlayer:
             if not getattr(peep, 'dead', True) and getattr(peep, 'team', 'allies') != self.team:
                 targets.append((int(peep.y), int(peep.x)))
                 
-        if action in ['_do_quake', '_do_swamp', '_do_volcano']:
-             if not targets:
+        if action in ['_do_quake', '_do_swamp', '_do_volcano', '_do_papal']:
+             if not targets and action != '_do_papal':
                  return
-             r, c = random.choice(targets)
+             
+             if action == '_do_papal':
+                 # L'IA place le magnet papal proche de ses propres bâtiments ou peeps
+                 my_targets = []
+                 for house in self.game.game_map.houses:
+                     if not getattr(house, 'destroyed', False) and getattr(house, 'team', 'allies') == self.team:
+                         my_targets.append((house.r, house.c))
+                 if my_targets:
+                     r, c = random.choice(my_targets)
+                 else:
+                     r, c = (random.randint(5, 55), random.randint(5, 55))
+             else:
+                 r, c = random.choice(targets)
              
              cost = self.game.POWER_COSTS.get(action, 9999)
              if self.game.power_jauge[self.team] >= cost:
@@ -141,6 +153,25 @@ class AIPlayer:
                      self.game.play_sound('do_volcano')
                      print(f"IA [{self.team}]: déclenche Volcan en ({r}, {c})")
                      
+             elif action == '_do_papal':
+                 cost = self.game.POWER_COSTS.get('_do_papal', 50)
+                 if self.game.power_jauge[self.team] >= cost:
+                     self.game.power_jauge[self.team] -= cost
+                     self.game.papal_position[self.team] = (r, c)
+                     print(f"IA [{self.team}]: place un Papal Magnet en ({r}, {c})")
+                     
+        elif action == '_do_knight':
+            cost = self.game.POWER_COSTS.get('_do_knight', 350)
+            if self.game.power_jauge[self.team] >= cost:
+                leader = self.game.leader_target.get(self.team)
+                if leader is not None and getattr(leader, 'is_leader', False):
+                    self.game.power_jauge[self.team] -= cost
+                    leader.is_knight = True
+                    leader.is_leader = False
+                    self.game.leader_target[self.team] = None
+                    leader.set_command('_go_fight')
+                    print(f"IA [{self.team}]: Un Peep leader est devenu un Chevalier !")
+
         elif action == '_do_flood':
             cost = self.game.POWER_COSTS.get('_do_flood', 500)
             if self.game.power_jauge[self.team] >= cost:

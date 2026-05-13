@@ -2,6 +2,7 @@ import pygame
 import random
 import math
 import os
+import json
 from settings import *
 from game_map import GameMap
 from peep import Peep
@@ -9,6 +10,57 @@ from house import House
 from camera import Camera
 from minimap import Minimap
 from ai_player import AIPlayer
+
+class BitmapFont:
+    def __init__(self, filepath, charset, char_w=6, char_h=5, space_x=1, space_y=1):
+        if os.path.exists(filepath):
+            self.sheet = pygame.image.load(filepath).convert_alpha()
+        else:
+            print(f"Warning: Font file not found at {filepath}")
+            self.sheet = pygame.Surface((10, 10), pygame.SRCALPHA)
+        self.chars = {}
+        self.char_w = char_w
+        self.char_h = char_h
+        
+        sheet_w, sheet_h = self.sheet.get_size()
+        cols = (sheet_w + space_x) // (char_w + space_x)
+        if cols == 0: cols = 1
+        
+        for i, char in enumerate(charset):
+            col = i % cols
+            row = i // cols
+            x = col * (char_w + space_x)
+            y = row * (char_h + space_y)
+            
+            if x + char_w <= sheet_w and y + char_h <= sheet_h:
+                rect = pygame.Rect(x, y, char_w, char_h)
+                surf = self.sheet.subsurface(rect).copy()
+                self.chars[char.lower()] = surf
+                self.chars[char.upper()] = surf
+        self.chars[' '] = pygame.Surface((char_w, char_h), pygame.SRCALPHA)
+
+    def render(self, text, color, scale):
+        text_w = len(text) * (self.char_w + 1) - 1
+        if text_w < 0: text_w = 0
+        text_h = self.char_h
+        
+        surf = pygame.Surface((text_w, text_h), pygame.SRCALPHA)
+        x_offset = 0
+        for char in text:
+            if char in self.chars:
+                char_surf = self.chars[char].copy()
+                # Multiply apply color
+                # Create a uniform color surface and multiply it
+                color_surf = pygame.Surface(char_surf.get_size(), pygame.SRCALPHA)
+                color_surf.fill(color)
+                char_surf.blit(color_surf, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+                
+                surf.blit(char_surf, (x_offset, 0))
+            x_offset += self.char_w + 1
+            
+        if scale > 1:
+            surf = pygame.transform.scale(surf, (text_w * scale, text_h * scale))
+        return surf
 
 class Game:
     def move_camera_direction(self, direction):
@@ -30,6 +82,11 @@ class Game:
         self.volcano_mode = False # Mode volcan
         # Blason pour chaque faction
         self.shield_target = {
+            'allies': None,
+            'foes': None
+        }
+        # Leader pour chaque faction
+        self.leader_target = {
             'allies': None,
             'foes': None
         }
@@ -347,6 +404,40 @@ class Game:
             return 'Epee'
         return 'Arc'
 
+    def _draw_leader_marker(self, surface, target, target_type, team, cam_r, cam_c, offset_y=0):
+        sprites = Peep.get_sprites()
+        coord = (4, 8) if team == 'allies' else (4, 9)
+        leader_sprite = sprites.get(coord)
+        if leader_sprite is None:
+            return
+
+        if target_type == 'peep':
+            rect = self._get_peep_sprite_rect(target, cam_r, cam_c, offset_y=offset_y)
+            # à la même place que le shield
+            x = rect.centerx - 1
+            y = rect.centery - leader_sprite.get_height() // 2 + 2
+            surface.blit(leader_sprite, (x, y))
+            return
+
+        if getattr(target, 'building_type', None) == 'castle':
+            center_r = getattr(target, 'r', 0)
+            center_c = getattr(target, 'c', 0)
+            alt = self.game_map.get_corner_altitude(center_r, center_c)
+            sx, sy = self.game_map.world_to_screen(center_r, center_c, alt, cam_r, cam_c)
+            sy += offset_y
+            # Simule un "rect" virtuel pour la case centrale
+            rect = pygame.Rect(sx - TILE_HALF_W, sy, TILE_WIDTH, TILE_HEIGHT)
+            x = rect.centerx - leader_sprite.get_width() // 2 + 11
+            y = rect.top - leader_sprite.get_height() - 2 + 23
+            surface.blit(leader_sprite, (x, y))
+            return
+
+        # Pour les maisons régulières
+        rect = self._get_house_sprite_rect(target, cam_r, cam_c, offset_y=offset_y)
+        x = rect.centerx - leader_sprite.get_width() // 2 + 11
+        y = rect.top - leader_sprite.get_height() - 2 + 23
+        surface.blit(leader_sprite, (x, y))
+
     def _draw_shield_marker(self, surface, target, target_type, cam_r, cam_c, offset_y=0):
         sprites = Peep.get_sprites()
         shield_sprite = sprites.get((8, 8))
@@ -421,8 +512,8 @@ class Game:
         blason_br = (287, 19)  # Barres HP/NRG
 
         # 1. Colonie
-        is_enemy = getattr(target, 'is_enemy', False)
-        colony_sprite = sprites.get((4, 9) if is_enemy else (4, 8))
+        team = getattr(target, 'team', 'allies')
+        colony_sprite = sprites.get((4, 9) if team == 'foes' else (4, 8))
         if colony_sprite:
             surface.blit(colony_sprite, blason_tl)
 
@@ -445,8 +536,15 @@ class Game:
                 surface.blit(flag_sprite, (blason_bl[0] - 3, blason_bl[1]))
         else:
             facing = getattr(target, 'facing', 'IDLE')
-            from peep import WALK_FRAMES
-            anim = WALK_FRAMES.get(facing, WALK_FRAMES['IDLE'])
+            is_knight = getattr(target, 'is_knight', False)
+            if is_knight:
+                from peep import KNIGHT_FRAMES as frames_set
+            elif team == 'foes':
+                from peep import FOE_WALK_FRAMES as frames_set
+            else:
+                from peep import WALK_FRAMES as frames_set
+            
+            anim = frames_set.get(facing, frames_set['IDLE'])
             peep_sprite = sprites.get(anim[getattr(target, 'anim_frame', 0) % len(anim)])
             if peep_sprite:
                 surface.blit(peep_sprite, blason_bl)
@@ -486,7 +584,6 @@ class Game:
             pygame.draw.line(self.scanline_surface, (0, 0, 0, 100), (0, y), (w, y), 1)
 
     def play_sound(self, name):
-        """Joue un son s'il est chargé."""
         if name in self.sounds:
             self.sounds[name].play()
 
@@ -592,6 +689,26 @@ class Game:
                 self._handle_ui_click('_raise_terrain', held=False)
             else:
                 print("Pas assez de power pour marécage !")
+        elif action == '_do_knight':
+            cost = self.POWER_COSTS['_do_knight']
+            if self.power_jauge['allies'] >= cost:
+                leader = self.leader_target['allies']
+                if leader is not None and isinstance(leader, Peep):
+                    self.power_jauge['allies'] -= cost
+                    leader.is_knight = True
+                    leader.is_leader = False
+                    self.leader_target['allies'] = None
+                    leader.set_command('_go_fight')
+                    print("Un Peep leader est devenu un Chevalier !")
+                else:
+                    if leader is not None:
+                        # Cas où le leader est un bâtiment, on ne le transforme pas directement. Peut-être faire sortir le peep ?
+                        print("Le leader est dans un bâtiment. Impossible de le transformer en chevalier, attendez qu'il sorte.")
+                    else:
+                        print("Aucun leader allié à transformer en chevalier !")
+                self._handle_ui_click('_raise_terrain', held=False)
+            else:
+                print("Pas assez de power pour do_knight !")
         elif action == '_find_papal':
             if self.papal_position['allies']:
                 r, c = self.papal_position['allies']
@@ -655,13 +772,172 @@ class Game:
             else:
                 print(f"Pouvoir sélectionné (en attente d'implémentation) : {action}")
 
+    def show_options_menu(self):
+        options_running = True
+        # Definitions des options: [label_off, label_on, state, key]
+        # state: False = off ('.'), True = on (':')
+        menu_items = [
+            ["water is harmful", "water is fatal", False, "water_fatal"],
+            ["swamps shallow", "swamps botomless", False, "swamps_bottomless"],
+            ["can build", "cannot build", False, "cannot_build"],
+            ["build up and down", "only build up", False, "only_build_up"],
+            ["build near people", "build near towns", True, "build_near_towns"],
+            ["BACK TO MENU", "BACK TO MENU", False, None]
+        ]
+        
+        # Charger les options depuis le fichier si elles existent
+        config_path = os.path.join(BASE_DIR, "options.json")
+        saved_options = {}
+        if os.path.exists(config_path):
+            try:
+                with open(config_path, "r") as f:
+                    saved_options = json.load(f)
+            except:
+                pass
+        
+        # Appliquer les valeurs sauvegardées
+        for item in menu_items:
+            key = item[3]
+            if key in saved_options:
+                item[2] = saved_options[key]
+        
+        selected = 0
+        bg_snapshot = self.screen.copy()
+        cx = self.screen.get_width() // 2
+        cy = self.screen.get_height() // 2
+        menu_w = 160 * self.display_scale
+        menu_h = 130 * self.display_scale
+        menu_rect = pygame.Rect(cx - menu_w // 2, cy - menu_h // 2, menu_w, menu_h)
+
+        while options_running:
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    self.running = False
+                    options_running = False
+                elif event.type == pygame.KEYDOWN:
+                    if event.key in (pygame.K_UP, pygame.K_w):
+                        selected = (selected - 1) % len(menu_items)
+                    elif event.key in (pygame.K_DOWN, pygame.K_s):
+                        selected = (selected + 1) % len(menu_items)
+                    elif event.key == pygame.K_ESCAPE:
+                        options_running = False
+                    elif event.key in (pygame.K_RETURN, pygame.K_SPACE):
+                        if selected == len(menu_items) - 1: # Return
+                            # Sauvegarder avant de partir
+                            current_options = {item[3]: item[2] for item in menu_items if item[3] is not None}
+                            try:
+                                with open(config_path, "w") as f:
+                                    json.dump(current_options, f)
+                            except:
+                                pass
+                            options_running = False
+                        else:
+                            menu_items[selected][2] = not menu_items[selected][2]
+
+            self.screen.blit(bg_snapshot, (0, 0))
+            window_surface = pygame.Surface(self.screen.get_size(), pygame.SRCALPHA)
+            # Augmentation de l'opacité (230 au lieu de 200 sur 255)
+            pygame.draw.rect(window_surface, (102, 34, 0, 230), menu_rect)
+            pygame.draw.rect(window_surface, (200, 150, 80, 255), menu_rect, 2 * self.display_scale)
+            self.screen.blit(window_surface, (0, 0))
+
+            title_surf = self.custom_font.render("OPTIONS", (255, 255, 255), self.display_scale)
+            self.screen.blit(title_surf, (cx - title_surf.get_width() // 2, cy - menu_h // 2 + 10 * self.display_scale))
+
+            for i, item in enumerate(menu_items):
+                # Correction du déballage : on ignore la clé de sauvegarde
+                label_off, label_on, state, key = item
+                color = (255, 255, 0, 255) if i == selected else (200, 200, 200, 255)
+                
+                if i == len(menu_items) - 1:
+                    display_text = label_off
+                else:
+                    prefix = ":" if state else "."
+                    display_text = f"{prefix} {label_on if state else label_off}"
+                
+                text_surf = self.custom_font.render(display_text.lower(), color, self.display_scale)
+                text_rect = text_surf.get_rect(midleft=(cx - menu_w // 2 + 10 * self.display_scale, cy - 25 * self.display_scale + i * 12 * self.display_scale))
+                self.screen.blit(text_surf, text_rect)
+
+            pygame.display.flip()
+            self.clock.tick(60)
+
+    def show_pause_menu(self):
+        menu_running = True
+        options = ["OPTIONS", "QUIT", "BACK TO GAME"]
+        selected = 0
+        
+        # On capture l'écran actuel pour éviter que la transparence ne se superpose en boucle
+        bg_snapshot = self.screen.copy()
+        
+        # Chargement de la police bitmap personnalisée
+        if not hasattr(self, 'custom_font'):
+            charset = "abcdefghijklmnopqrstuvwxyz1234567890!@#+-_()*%[].:"
+            self.custom_font = BitmapFont(os.path.join(GFX_DIR, "font.png"), charset, 6, 5, 1, 1)
+        
+        def render_pixelated(text, color, scale):
+            return self.custom_font.render(text, color, scale)
+            
+        while menu_running:
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    self.running = False
+                    menu_running = False
+                elif event.type == pygame.KEYDOWN:
+                    if event.key in (pygame.K_UP, pygame.K_w):
+                        selected = (selected - 1) % len(options)
+                    elif event.key in (pygame.K_DOWN, pygame.K_s):
+                        selected = (selected + 1) % len(options)
+                    elif event.key == pygame.K_ESCAPE:
+                        menu_running = False
+                    elif event.key in (pygame.K_RETURN, pygame.K_SPACE):
+                        if selected == 0: # Options
+                            self.show_options_menu()
+                        elif selected == 1: # Quit
+                            self.running = False
+                            menu_running = False
+                        elif selected == 2: # Return
+                            menu_running = False
+
+            # Restaurer le fond du jeu
+            self.screen.blit(bg_snapshot, (0, 0))
+
+            # Dessiner la fenêtre semi-transparente
+            window_surface = pygame.Surface(self.screen.get_size(), pygame.SRCALPHA)
+            
+            menu_w = 120 * self.display_scale
+            menu_h = 100 * self.display_scale
+            cx = self.screen.get_width() // 2
+            cy = self.screen.get_height() // 2
+            menu_rect = pygame.Rect(cx - menu_w // 2, cy - menu_h // 2, menu_w, menu_h)
+            
+            # Augmentation de l'opacité (230 au lieu de 200 sur 255)
+            pygame.draw.rect(window_surface, (102, 34, 0, 230), menu_rect)
+            # Bordure pour démarquer la fenêtre
+            pygame.draw.rect(window_surface, (200, 150, 80, 255), menu_rect, 2 * self.display_scale)
+            
+            self.screen.blit(window_surface, (0, 0))
+
+            # Dessiner les textes avec la technique de pixélisation
+            title_surf = render_pixelated("MENU", (255, 255, 255), self.display_scale)
+            self.screen.blit(title_surf, (cx - title_surf.get_width() // 2, cy - menu_h // 2 + 10 * self.display_scale))
+
+            for i, opt in enumerate(options):
+                color = (255, 255, 0, 255) if i == selected else (200, 200, 200, 255)
+                text_surf = render_pixelated(opt, color, self.display_scale)
+                text_rect = text_surf.get_rect(center=(cx, cy - 5 * self.display_scale + i * 15 * self.display_scale))
+                self.screen.blit(text_surf, text_rect)
+
+            pygame.display.flip()
+            self.clock.tick(60)
+
     def events(self):
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 self.running = False
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
-                    self.running = False
+                    self.show_pause_menu()
                 elif event.key == pygame.K_TAB:
                     self.display_scale = (self.display_scale % 4) + 1
                     self.screen = pygame.display.set_mode((self.base_size[0] * self.display_scale, self.base_size[1] * self.display_scale))
@@ -786,6 +1062,11 @@ class Game:
             if self.view_who == house:
                 self.view_who = new_peep
                 self.view_type = 'peep'
+
+        if getattr(house, 'has_leader', False) or self.leader_target.get(team) == house:
+            new_peep.is_leader = True
+            house.has_leader = False
+            self.leader_target[team] = new_peep
         
         if self.active_peep_command[team]:
             new_peep.set_command(self.active_peep_command[team], self.active_peep_target[team])
@@ -886,8 +1167,10 @@ class Game:
                 foes_free.remove(closest_foe)
 
         self.game_map.update(dt)
+
         for peep in self.peeps:
             peep_had_shield = getattr(peep, 'has_shield', False)
+            peep_had_leader = getattr(peep, 'is_leader', False)
             peep.update(dt)
 
             if getattr(peep, 'just_swamped', False):
@@ -911,7 +1194,50 @@ class Game:
                     if not found_new:
                         self.shield_target[peep.team] = None
 
+            # Pareil pour le leader :
+            if peep.dead and peep_had_leader:
+                if self.leader_target[peep.team] == peep:
+                    found_new = False
+                    for p in self.peeps:
+                        if not p.dead and getattr(p, 'is_leader', False) and p.team == peep.team:
+                            self.leader_target[peep.team] = p
+                            found_new = True
+                            break
+                    if not found_new:
+                        # Si aucun peep n'a pris le leader par fusion, 
+                        # on regarde si une maison vient de le recevoir.
+                        for h in self.game_map.houses:
+                            if getattr(h, 'has_leader', False) and h.team == peep.team:
+                                self.leader_target[peep.team] = h
+                                found_new = True
+                                break
+                        
+                        if not found_new:
+                            self.leader_target[peep.team] = None
+                            # La mort n'est pas causée par l'entrée dans un bâtiment alliée, ni fusion
+                            # On place le papal sur la case où le leader est mort
+                            if not getattr(peep, 'in_house_leader', False) and not getattr(peep, 'merged_leader', False):
+                                rr, cc = int(peep.y), int(peep.x)
+                                self.papal_position[peep.team] = (rr, cc)
+                                self.active_peep_target[peep.team] = self.papal_position[peep.team]
+                                # Optionnel: Rediriger les peeps
+                                if self.active_peep_command[peep.team] == '_go_papal':
+                                    for p in self.peeps:
+                                        if not p.dead and p.team == peep.team:
+                                            p.set_command('_go_papal', self.papal_position[peep.team])
+
             if not peep.dead:
+                # NOUVEAU : Devenir Leader au contact du point de ralliement papal
+                if peep.state == Peep.STATE_PAPAL:
+                    papal_pos = self.papal_position[peep.team]
+                    if papal_pos is not None:
+                        pr, pc = papal_pos
+                        if int(peep.y) == pr and int(peep.x) == pc:
+                            # Le premier peep qui entre en contact devient leader (s'il n'y a pas déjà de leader pour son équipe)
+                            if self.leader_target[peep.team] is None:
+                                peep.is_leader = True
+                                self.leader_target[peep.team] = peep
+
                 # NOUVEAU : Combat Peep vs Bâtiment adverse
                 # Un peep en WANDER, FIGHT ou PAPAL qui touche un bâtiment adverse lance un combat
                 if peep.state in ('wander', 'fight', 'papal'):
@@ -934,6 +1260,10 @@ class Game:
                                 if peep_had_shield:
                                     h.has_shield = True
                                     self.shield_target[peep.team] = h
+                                if peep_had_leader:
+                                    h.has_leader = True
+                                    peep.in_house_leader = True
+                                    self.leader_target[peep.team] = h
                                 peep.life = 0
                                 peep.dead = True
                                 peep.in_house = True
@@ -951,6 +1281,11 @@ class Game:
                     if peep_had_shield:
                         new_house.has_shield = True
                         self.shield_target[peep.team] = new_house
+                    
+                    if peep_had_leader:
+                        new_house.has_leader = True
+                        peep.in_house_leader = True
+                        self.leader_target[peep.team] = new_house
                     
                     if self.view_type == 'peep' and self.view_who == peep:
                         self.view_who = new_house
@@ -1022,6 +1357,8 @@ class Game:
         for house in self.game_map.houses:
             if not getattr(house, 'destroyed', False) and getattr(house, 'has_shield', False):
                 self._draw_shield_marker(self.internal_surface, house, 'house', cam_r, cam_c, offset_y=offset_y)
+            if not getattr(house, 'destroyed', False) and getattr(house, 'has_leader', False):
+                self._draw_leader_marker(self.internal_surface, house, 'house', house.team, cam_r, cam_c, offset_y=offset_y)
 
         start_r, end_r, start_c, end_c = self.game_map.get_visible_bounds(cam_r, cam_c)
 
@@ -1032,12 +1369,15 @@ class Game:
             # Affiche le shield automatique si le peep l'a (même s'il n'est pas sélectionné)
             if getattr(peep, 'has_shield', False):
                 self._draw_shield_marker(self.internal_surface, peep, 'peep', cam_r, cam_c, offset_y=offset_y)
+            if getattr(peep, 'is_leader', False):
+                self._draw_leader_marker(self.internal_surface, peep, 'peep', peep.team, cam_r, cam_c, offset_y=offset_y)
 
-        # --- Affichage du papal (tile 5,0) après maisons et peeps ---
-        papal_tile = self.game_map.tile_surfaces.get((5, 0))
-        if papal_tile:
-            for team, pos in self.papal_position.items():
-                if pos is not None:
+        # --- Affichage du papal (tiles 5,0 ou 5,1) après maisons et peeps ---
+        for team, pos in self.papal_position.items():
+            if pos is not None:
+                papal_coord = (5, 0) if team == 'allies' else (5, 1)
+                papal_tile = self.game_map.tile_surfaces.get(papal_coord)
+                if papal_tile:
                     r, c = pos
                     start_r, end_r, start_c, end_c = self.game_map.get_visible_bounds(cam_r, cam_c)
                     if start_r <= r < end_r and start_c <= c < end_c:
@@ -1045,14 +1385,18 @@ class Game:
                         sx, sy = self.game_map.world_to_screen(r, c, alt, cam_r, cam_c)
                         blit_x = sx - TILE_HALF_W
                         blit_y = sy + offset_y
-                        # TODO: coloriser le papal en fonction de la team
                         self.internal_surface.blit(papal_tile, (blit_x, blit_y))
 
         if self.view_who is not None and self.view_type is not None:
             r = getattr(self.view_who, 'y', getattr(self.view_who, 'r', -1))
             c = getattr(self.view_who, 'x', getattr(self.view_who, 'c', -1))
             if start_r <= r < end_r and start_c <= c < end_c:
+                # Outil de sélection : on utilise le shield comme curseur sur entité, mais on ne veut pas 
+                # qu'il masque un sprite de leader. On trace le shield, puis le leader.
                 self._draw_shield_marker(self.internal_surface, self.view_who, self.view_type, cam_r, cam_c, offset_y=offset_y)
+                team = getattr(self.view_who, 'team', 'allies')
+                if getattr(self.view_who, 'is_leader', getattr(self.view_who, 'has_leader', False)):
+                    self._draw_leader_marker(self.internal_surface, self.view_who, self.view_type, team, cam_r, cam_c, offset_y=offset_y)
 
         mouse_x, mouse_y = pygame.mouse.get_pos()
         mouse_x //= self.display_scale
