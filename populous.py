@@ -1424,6 +1424,18 @@ class Game:
 
         self._draw_shield_panel(self.internal_surface)
 
+        bluescore = 0
+        redscore = 0
+        for peep in self.peeps:
+            team = getattr(peep, 'team', 'allies')
+            if team == 'allies': 
+                bluescore += 1 
+            else: 
+                redscore += 1
+
+        self._draw_bar(self.internal_surface, 258,16,min(bluescore*0.01,2.0),(0,0,255))
+        self._draw_bar(self.internal_surface, 314,16,min(redscore*0.01,2.0),(255,0,0))
+
         # Affichage du pointeur de powerjauge
         power_pointer = Peep.get_sprites().get((8, 9))
         if power_pointer:
