@@ -257,6 +257,9 @@ class Game:
         # Commande par défaut au lancement
         self._handle_ui_click('_go_build', held=False)
 
+        # Charger les options depuis settings (qui va lire options.json s'il existe)
+        self.load_options()
+
         # --- Initialisation des sprites de boutons ---
         self.button_sprite_indices = {}
         self.button_sprites = []
@@ -281,6 +284,16 @@ class Game:
         ]
         for idx, name in enumerate(button_order):
             self.button_sprite_indices[name] = idx 
+
+    def load_options(self):
+        config_path = os.path.join(BASE_DIR, "options.json")
+        if os.path.exists(config_path):
+            try:
+                with open(config_path, "r") as f:
+                    opts = json.load(f)
+                    settings.GAME_OPTIONS.update(opts)
+            except:
+                pass
 
     def _get_peep_sprite_rect(self, peep, cam_r, cam_c, offset_y=0):
         gr, gc = int(peep.y), int(peep.x)
@@ -714,6 +727,19 @@ class Game:
                 r, c = self.papal_position['allies']
                 self.camera.center_on(r, c)
                 print(f"Caméra centrée sur le papal ({r}, {c})")
+        elif action == '_find_knight':
+            knights = [p for p in self.peeps if not p.dead and p.team == 'allies' and getattr(p, 'is_knight', False)]
+            if knights:
+                self._last_knight_index = getattr(self, '_last_knight_index', -1) + 1
+                if self._last_knight_index >= len(knights):
+                    self._last_knight_index = 0
+                target = knights[self._last_knight_index]
+                self.camera.center_on(target.y, target.x)
+                self.view_who = target
+                self.view_type = 'peep'
+                print(f"Caméra centrée sur le chevalier ({target.y}, {target.x})")
+            else:
+                print("Aucun chevalier allié trouvé.")
         elif action == '_find_shield':
             if self.shield_target['allies'] is not None:
                 target = self.shield_target['allies']
@@ -773,33 +799,18 @@ class Game:
                 print(f"Pouvoir sélectionné (en attente d'implémentation) : {action}")
 
     def show_options_menu(self):
+        import settings
         options_running = True
         # Definitions des options: [label_off, label_on, state, key]
         # state: False = off ('.'), True = on (':')
         menu_items = [
-            ["water is harmful", "water is fatal", False, "water_fatal"],
-            ["swamps shallow", "swamps botomless", False, "swamps_bottomless"],
-            ["can build", "cannot build", False, "cannot_build"],
-            ["build up and down", "only build up", False, "only_build_up"],
-            ["build near people", "build near towns", True, "build_near_towns"],
+            ["water is harmful", "water is fatal", settings.GAME_OPTIONS.get("water_fatal", False), "water_fatal"],
+            ["swamps shallow", "swamps botomless", settings.GAME_OPTIONS.get("swamps_bottomless", False), "swamps_bottomless"],
+            ["can build", "cannot build", settings.GAME_OPTIONS.get("cannot_build", False), "cannot_build"],
+            ["build up and down", "only build up", settings.GAME_OPTIONS.get("only_build_up", False), "only_build_up"],
+            ["build near people", "build near towns", settings.GAME_OPTIONS.get("build_near_towns", True), "build_near_towns"],
             ["BACK TO MENU", "BACK TO MENU", False, None]
         ]
-        
-        # Charger les options depuis le fichier si elles existent
-        config_path = os.path.join(BASE_DIR, "options.json")
-        saved_options = {}
-        if os.path.exists(config_path):
-            try:
-                with open(config_path, "r") as f:
-                    saved_options = json.load(f)
-            except:
-                pass
-        
-        # Appliquer les valeurs sauvegardées
-        for item in menu_items:
-            key = item[3]
-            if key in saved_options:
-                item[2] = saved_options[key]
         
         selected = 0
         bg_snapshot = self.screen.copy()
@@ -824,10 +835,13 @@ class Game:
                     elif event.key in (pygame.K_RETURN, pygame.K_SPACE):
                         if selected == len(menu_items) - 1: # Return
                             # Sauvegarder avant de partir
-                            current_options = {item[3]: item[2] for item in menu_items if item[3] is not None}
+                            for item in menu_items:
+                                if item[3] is not None:
+                                    settings.GAME_OPTIONS[item[3]] = item[2]
+                            config_path = os.path.join(BASE_DIR, "options.json")
                             try:
                                 with open(config_path, "w") as f:
-                                    json.dump(current_options, f)
+                                    json.dump(settings.GAME_OPTIONS, f)
                             except:
                                 pass
                             options_running = False
@@ -1175,6 +1189,11 @@ class Game:
 
             if getattr(peep, 'just_swamped', False):
                 self.play_sound('swamped')
+                # Si l'option swamps_bottomless est False, le marécage disparaît après une victime
+                if not settings.GAME_OPTIONS.get("swamps_bottomless", False):
+                    swamp_pos = peep.just_swamped
+                    if isinstance(swamp_pos, tuple) and swamp_pos in self.game_map.swamps:
+                        self.game_map.swamps.remove(swamp_pos)
                 peep.just_swamped = False
             
             # Si le peep est mort et avait le shield, on perd la cible ou on gère le transfert
@@ -1424,17 +1443,24 @@ class Game:
 
         self._draw_shield_panel(self.internal_surface)
 
-        bluescore = 0
-        redscore = 0
+        score_allies = 0
+        score_foes = 0
         for peep in self.peeps:
             team = getattr(peep, 'team', 'allies')
             if team == 'allies': 
-                bluescore += 1 
+                score_allies += 1 
             else: 
-                redscore += 1
+                score_foes += 1
+                
+        for house in self.game_map.houses:
+            team = getattr(house, 'team', 'allies')
+            if team == 'allies':
+                score_allies += 1
+            else:
+                score_foes += 1
 
-        self._draw_bar(self.internal_surface, 258,16,min(bluescore*0.01,2.0),(0,0,255))
-        self._draw_bar(self.internal_surface, 314,16,min(redscore*0.01,2.0),(255,0,0))
+        self._draw_bar(self.internal_surface, 258, 16, min((score_allies / 300.0) * 2.0, 2.0), (34,102,204))
+        self._draw_bar(self.internal_surface, 314, 16, min((score_foes / 300.0) * 2.0, 2.0), (170,0,0))
 
         # Affichage du pointeur de powerjauge
         power_pointer = Peep.get_sprites().get((8, 9))

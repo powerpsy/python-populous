@@ -1,1 +1,1 @@
-{"water_fatal": true, "swamps_bottomless": true, "cannot_build": true, "only_build_up": true, "build_near_towns": false}
+{"water_fatal": true, "swamps_bottomless": false, "cannot_build": false, "only_build_up": false, "build_near_towns": true}

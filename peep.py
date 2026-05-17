@@ -571,14 +571,26 @@ class Peep:
             if (gr_cur, gc_cur) in self.game_map.swamps and not self.dead:
                 self.dead = True
                 self.death_timer = 0
-                self.just_swamped = True
+                self.just_swamped = (gr_cur, gc_cur) # On stocke la position de la noyade
                 return
         else:
             on_water = False
 
-        # Perte de vie : 1 point par seconde (plus rapide dans l'eau ?)
-        # Si on est dans l'eau (on_water), on meurt beaucoup plus vite (noyade active)
-        self.life -= dt * (25.0 if on_water else 1.0)
+        # Perte de vie : 1 point par seconde
+        # Si on est dans l'eau (on_water) :
+        # - Si water_fatal est vrai : mort instantanée
+        # - Sinon : vie descend 4x plus vite (4.0 par sec)
+        import settings
+        if on_water:
+            if settings.GAME_OPTIONS.get("water_fatal", False):
+                self.life = 0
+                self.dead = True
+                return
+            else:
+                self.life -= dt * 4.0
+        else:
+            self.life -= dt * 1.0
+
         if self.life <= 0:
             self.life = 0
             self.dead = True

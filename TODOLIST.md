@@ -1,7 +1,5 @@
 TODO ----------------------------------------------------------------------------------------------
-* v2 Add god power: knight
-* v3 implement option "water fatality"
-* v3 implement option "swamps depth"
+
 * v3 implement option "build possibility"
 * v3 implement option "build direction"
 * v3 implement option "build near town/people"
@@ -103,3 +101,7 @@ v0.3.2
 62. Create leader when getting papal (carries the cross / evil sign)
 63. Add god power: knight
 64. Allow shield to be held by allies, knights foes. It is showing the correct player and the correct papal side.
+v0.3.3
+65. Implemented "find_knight"
+66. Implemented "water fatality" option
+67. Implemented  "swamps depth" option
