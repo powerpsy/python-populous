@@ -10,6 +10,7 @@ from house import House
 from camera import Camera
 from minimap import Minimap
 from ai_player import AIPlayer
+from sound import Sound
 
 class BitmapFont:
     def __init__(self, filepath, charset, char_w=6, char_h=5, space_x=1, space_y=1):
@@ -139,6 +140,7 @@ class Game:
         self.game_map = GameMap(GRID_WIDTH, GRID_HEIGHT)
         self.game_map.randomize()
         self.minimap = Minimap(0, 0) # Position de la minimap
+        self.sound = Sound()
 
         # --- Chargement des sprites d'armes ---
         self.weapon_sprites = []
@@ -165,13 +167,6 @@ class Game:
         self.running = True
         self.show_debug = False
         self.show_scanlines = False
-        
-        # --- Chargement des sons ---
-        self.sounds = {}
-        for sfx_name in ["do_volcano", "do_flood", "do_quake", "swamp", "swamped"]:
-            wav_path = os.path.join(SFX_DIR, f"{sfx_name}.wav")
-            if pygame.mixer.get_init() and os.path.exists(wav_path):
-                self.sounds[sfx_name] = pygame.mixer.Sound(wav_path)
         
         self.power_jauge = {'allies': 0.0, 'foes': 0.0}
         self.power_max = {'allies': 100.0, 'foes': 100.0}
@@ -583,9 +578,6 @@ class Game:
         for y in range(0, h, max(1, self.display_scale)):
             pygame.draw.line(self.scanline_surface, (0, 0, 0, 100), (0, y), (w, y), 1)
 
-    def play_sound(self, name):
-        if name in self.sounds:
-            self.sounds[name].play()
 
     def spawn_initial_peeps(self, count):
         # Spawn initial d'allies (bleus)
@@ -647,7 +639,7 @@ class Game:
                 target_r = int(self.camera.r + 4)
                 target_c = int(self.camera.c + 4)
                 self.game_map.do_volcano(target_r, target_c)
-                self.play_sound('do_volcano')
+                self.sound.play_sound('do_volcano')
                 print(f"Volcan lancé au centre de la vue ({target_r}, {target_c})")
                 # On reste en raise_terrain après
                 self._handle_ui_click('_raise_terrain', held=False)
@@ -658,7 +650,7 @@ class Game:
             if self.power_jauge['allies'] >= cost:
                 self.power_jauge['allies'] -= cost
                 self.game_map.do_flood()
-                self.play_sound('do_flood')
+                self.sound.play_sound('do_flood')
                 print("Flood lancé ! Toute la carte a baissé de 1.")
                 # Retour au mode sélectionné
                 self._handle_ui_click('_raise_terrain', held=False)
@@ -671,7 +663,7 @@ class Game:
                 # Déclenche l'effet visuel et le son
                 self.quake_timer = 2.0
                 self.quake_target = (int(self.camera.r + 4), int(self.camera.c + 4))
-                self.play_sound('do_quake')
+                self.sound.play_sound('do_quake')
                 print("Tremblement de terre lancé ! Secousse en cours...")
                 # Retour au mode sélectionné
                 self._handle_ui_click('_raise_terrain', held=False)
@@ -683,7 +675,7 @@ class Game:
                 self.power_jauge['allies'] -= cost
                 target_r, target_c = int(self.camera.r + 4), int(self.camera.c + 4)
                 self.game_map.do_swamp(target_r, target_c)
-                self.play_sound('swamp')
+                self.sound.play_sound('swamp')
                 print(f"Marécage lancé au centre de la vue ({target_r}, {target_c})")
                 # Retour au mode sélectionné
                 self._handle_ui_click('_raise_terrain', held=False)
@@ -1174,7 +1166,7 @@ class Game:
             peep.update(dt)
 
             if getattr(peep, 'just_swamped', False):
-                self.play_sound('swamped')
+                self.sound.play_sound('swamped')
                 peep.just_swamped = False
             
             # Si le peep est mort et avait le shield, on perd la cible ou on gère le transfert
