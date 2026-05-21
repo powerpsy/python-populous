@@ -142,15 +142,15 @@ class AIPlayer:
                  if action == '_do_quake':
                      self.game.quake_timer = 2.0
                      self.game.quake_target = (r, c)
-                     self.game.play_sound('do_quake')
+                     self.game.sound.play_sound('do_quake')
                      print(f"IA [{self.team}]: déclenche Tremblement de Terre en ({r}, {c})")
                  elif action == '_do_swamp':
                      self.game.game_map.do_swamp(r, c)
-                     self.game.play_sound('swamp')
+                     #self.game.sound.play_sound('swamp')
                      print(f"IA [{self.team}]: déclenche Marécage en ({r}, {c})")
                  elif action == '_do_volcano':
                      self.game.game_map.do_volcano(r, c)
-                     self.game.play_sound('do_volcano')
+                     self.game.sound.play_sound('do_volcano')
                      print(f"IA [{self.team}]: déclenche Volcan en ({r}, {c})")
                      
              elif action == '_do_papal':
@@ -177,7 +177,7 @@ class AIPlayer:
             if self.game.power_jauge[self.team] >= cost:
                 self.game.power_jauge[self.team] -= cost
                 self.game.game_map.do_flood()
-                self.game.play_sound('do_flood')
+                self.game.sound.play_sound('do_flood')
                 print(f"IA [{self.team}]: déclenche Déluge !")
 
     def do_command_action(self):
