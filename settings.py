@@ -45,6 +45,14 @@ MAP_OFFSET_Y = SCREEN_HEIGHT // 4
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 GFX_DIR = os.path.join(BASE_DIR, "data", "gfx")
 SFX_DIR = os.path.join(BASE_DIR, "data", "sfx")
+
+GAME_OPTIONS = {
+    "water_fatal": False,
+    "swamps_bottomless": False,
+    "cannot_build": False,
+    "only_build_up": False,
+    "build_near_towns": True
+}
 TILES_PATH = os.path.join(GFX_DIR, "AmigaTiles1.PNG")
 SPRITES_PATH = os.path.join(GFX_DIR, "AmigaSprites1.PNG")
 
