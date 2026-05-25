@@ -118,7 +118,7 @@ class House:
         self.max_life = self.MAX_HEALTHS[max_tier]
         self.life += dt * growth_speed
         if self.life > self.max_life:
-            self.life = self.max_life
+
             self._pending_spawn = True
         # Empêcher la vie de descendre sous 1 (jamais 0)
         if self.life < 1.0:

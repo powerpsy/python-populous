@@ -3,9 +3,7 @@ TODO ---------------------------------------------------------------------------
 * v3 implement option "build possibility"
 * v3 implement option "build direction"
 * v3 implement option "build near town/people"
-
 * v2 Update powerjauge with a non linear progression linked to the POWER_COST matrix
-
 * v2 Add god power: war
 * v4 Add sound to actions/powers/combat
 * v5 Add a map generator (using a simple "key" to generate x/y peeps in different locations and different terrain typologies) --> simulate reproducible random maps as in the original game
@@ -16,8 +14,6 @@ TODO ---------------------------------------------------------------------------
 * v9+ Add internet multiplayer
 * v9+ Change map scale displayed from 8x8 to 16x16 and 32x32
 * v2 buildings distance needs to be reviewed + some new buildings diminish existing buildings
-* v2 review peeps movement (all together the same direction is not good !)
-* v3 peeps drowning can not "wait" for a battle
 * v2 peeps are not allowed to walk through rocks
 
 DONE ----------------------------------------------------------------------------------------------
@@ -105,3 +101,9 @@ v0.3.3
 65. Implemented "find_knight"
 66. Implemented "water fatality" option
 67. Implemented  "swamps depth" option
+v0.3.4
+68. Peeps drowning can not "wait" for a battle anymore
+v0.3.5
+69. Reviewed peeps movement (all together the same direction is not good !)
+70. Reviewed the go_build, go_fight and go_assemble, knight can't fuse with peeps anymore
+71. Added homepage

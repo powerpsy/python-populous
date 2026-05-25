@@ -23,6 +23,9 @@ class AIPlayer:
         self.command_cooldown = command_rate
 
     def update(self, dt):
+        if getattr(self.game, 'is_battle_over', False):
+            return
+            
         self.terrain_timer += dt
         self.power_timer += dt
         self.command_timer += dt
