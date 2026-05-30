@@ -351,6 +351,7 @@ class Peep:
                 # Sinon on est le DONNEUR, on se dirige vers le partenaire.
                 tr, tc = int(self.assemble_partner.y), int(self.assemble_partner.x)
             elif self.state == Peep.STATE_FIGHT:
+                target = None
                 is_armageddon = getattr(self.game_map, 'is_battle_over', False)
                 if is_armageddon:
                     # En armageddon, ils ciblent virtuellement le centre
