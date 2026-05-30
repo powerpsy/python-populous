@@ -10,7 +10,6 @@ if not os.path.exists('populous.py'):
     print("Erreur : populous.py introuvable dans le dossier courant.")
     sys.exit(1)
 
-
 # Saisie du message de commit et du numéro de version
 version_tag = input("Version: ")
 commit_msg = input("Commentaire de version: ")

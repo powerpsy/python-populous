@@ -1244,7 +1244,7 @@ class Game:
 
         if getattr(self, 'is_battle_over', False):
             self.battle_over_timer += dt
-            if self.battle_over_timer >= 1.0:
+            if self.battle_over_timer >= 0.333:  # 3 changements par seconde pour accélérer le terraforming
                 self.battle_over_timer = 0.0
                 center_r = self.game_map.grid_height // 2
                 center_c = self.game_map.grid_width // 2
@@ -1530,17 +1530,7 @@ class Game:
 
         start_r, end_r, start_c, end_c = self.game_map.get_visible_bounds(cam_r, cam_c)
 
-        for peep in self.peeps:
-            if peep.y < start_r or peep.y >= end_r or peep.x < start_c or peep.x >= end_c:
-                continue
-            peep.draw(self.internal_surface, cam_r, cam_c, show_debug=self.show_debug, debug_font=debug_font, offset_y=offset_y)
-            # Affiche le shield automatique si le peep l'a (même s'il n'est pas sélectionné)
-            if getattr(peep, 'has_shield', False) and not peep.dead:
-                self._draw_shield_marker(self.internal_surface, peep, 'peep', cam_r, cam_c, offset_y=offset_y)
-            if getattr(peep, 'is_leader', False) and not peep.dead:
-                self._draw_leader_marker(self.internal_surface, peep, 'peep', peep.team, cam_r, cam_c, offset_y=offset_y)
-
-        # --- Affichage du papal (tiles 5,0 ou 5,1) après maisons et peeps ---
+        # --- Affichage du papal (tiles 5,0 ou 5,1) avant les peeps ---
         for team, pos in self.papal_position.items():
             if pos is not None:
                 papal_coord = (5, 0) if team == 'allies' else (5, 1)
@@ -1554,6 +1544,16 @@ class Game:
                         blit_x = sx - TILE_HALF_W
                         blit_y = sy + offset_y
                         self.internal_surface.blit(papal_tile, (blit_x, blit_y))
+
+        for peep in self.peeps:
+            if peep.y < start_r or peep.y >= end_r or peep.x < start_c or peep.x >= end_c:
+                continue
+            peep.draw(self.internal_surface, cam_r, cam_c, show_debug=self.show_debug, debug_font=debug_font, offset_y=offset_y)
+            # Affiche le shield automatique si le peep l'a (même s'il n'est pas sélectionné)
+            if getattr(peep, 'has_shield', False) and not peep.dead:
+                self._draw_shield_marker(self.internal_surface, peep, 'peep', cam_r, cam_c, offset_y=offset_y)
+            if getattr(peep, 'is_leader', False) and not peep.dead:
+                self._draw_leader_marker(self.internal_surface, peep, 'peep', peep.team, cam_r, cam_c, offset_y=offset_y)
 
         if self.view_who is not None and self.view_type is not None:
             r = getattr(self.view_who, 'y', getattr(self.view_who, 'r', -1))

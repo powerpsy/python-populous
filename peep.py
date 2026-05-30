@@ -336,6 +336,13 @@ class Peep:
 
             if self.state == Peep.STATE_CHARGE_ENEMY and self.battle_partner:
                 tr, tc = int(self.battle_partner.y), int(self.battle_partner.x)
+                
+                # TOLÉRANCE FLUIDE: si on est très proche du partenaire, on va directement sur lui
+                # même en diagonale sans s'arrêter à la case exacte.
+                dist_to_partner = math.hypot(self.battle_partner.x - self.x, self.battle_partner.y - self.y)
+                if dist_to_partner < 1.5:
+                    return (tr, tc)
+                    
             elif self.state == Peep.STATE_ASSEMBLE and self.assemble_partner and not self.assemble_partner.dead:
                 # Si on est le RECEVEUR, on s'arrête pour attendre le DONNEUR
                 if self.assemble_role == 'receveur':
@@ -346,8 +353,14 @@ class Peep:
             elif self.state == Peep.STATE_FIGHT:
                 is_armageddon = getattr(self.game_map, 'is_battle_over', False)
                 if is_armageddon:
+                    # En armageddon, ils ciblent virtuellement le centre
                     target = (self.game_map.grid_height // 2, self.game_map.grid_width // 2)
-                else:
+                    # S'ils sont proches du centre mais qu'aucun ennemi n'est dispo, on ajoute la logique
+                    tr, tc = target
+                    if abs(r0 - tr) <= 2 and abs(c0 - tc) <= 2:
+                        target = None # On annule la cible fixe pour forcer le scan ennemi global
+                
+                if target is None:
                     # magnet to enemy peep OR enemy house
                     target = None
                     min_dist = float('inf')
@@ -565,7 +578,7 @@ class Peep:
                     self.battle_partner.battle_partner = self
                     self.battle_partner.move_progress = 1.0
 
-                if dist < 0.6:
+                if dist < 1.0:
                     self.state = Peep.STATE_BATTLE
                     self.state_timer = 0.0
                     self.move_progress = 1.0

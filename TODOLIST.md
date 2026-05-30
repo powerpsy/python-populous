@@ -4,7 +4,6 @@ TODO ---------------------------------------------------------------------------
 * v3 implement option "build direction"
 * v3 implement option "build near town/people"
 * v2 Update powerjauge with a non linear progression linked to the POWER_COST matrix
-* v2 Add god power: war
 * v4 Add sound to actions/powers/combat
 * v5 Add a map generator (using a simple "key" to generate x/y peeps in different locations and different terrain typologies) --> simulate reproducible random maps as in the original game
 * v5 Add a home page and game mode/password selection
@@ -107,3 +106,7 @@ v0.3.5
 69. Reviewed peeps movement (all together the same direction is not good !)
 70. Reviewed the go_build, go_fight and go_assemble, knight can't fuse with peeps anymore
 71. Added homepage
+v0.3.6
+72. Add god power: war
+73. Changed drwaing priority of papal & peeps: you want to see peeps
+74. Added autobuild terrain when War to let peeps encounter and fight on the center of the map
