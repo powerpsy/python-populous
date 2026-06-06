@@ -74,3 +74,5 @@ class Camera:
         if direction:
             self.move_direction(direction)
             self.move_timer = 0.15  # Délai entre deux déplacements (en secondes)
+            return direction
+        return None

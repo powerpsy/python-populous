@@ -73,7 +73,7 @@ class Game:
     def move_camera_direction(self, direction):
         # Déplace la caméra selon la direction
         self.camera.move_direction(direction)
-    def __init__(self):
+    def __init__(self, world_seed=None):
         # --- Scroll continu D-Pad ---
         self.dpad_held_direction = None
         self.dpad_held_timer = 0.0
@@ -145,8 +145,15 @@ class Game:
         self.camera = Camera()
         self.peeps = []
         self.game_map = GameMap(GRID_WIDTH, GRID_HEIGHT)
+        self.game_map.stats = {'battles_won': {'allies': 0, 'foes': 0}}
         self.game_map.peeps = self.peeps
-        self.game_map.randomize()
+        # On ne randomise pas ici, on le fera après le menu daccueil avec le seed éventuel
+
+        self.ai = AIPlayer(self, 'foes')
+        self.ai.set_difficulty(reaction_speed=5, command_rate=5)
+
+        self.world_seed = world_seed
+        
         self.minimap = Minimap(0, 0) # Position de la minimap
         self.sound = Sound()
 
@@ -212,12 +219,14 @@ class Game:
         self.quake_shake_y = 0
         self.quake_target = None # (r, c)
 
-        # Activer l'IA
         self.ai = AIPlayer(self, 'foes')
-        self.ai.set_difficulty(reaction_speed=1.5, power_rate=15.0, command_rate=20.0)
+        self.ai.set_difficulty(reaction_speed=5, command_rate=5)
+
+        self.world_seed = world_seed
 
         # --- Initialisation des zones interactives de l'interface ---
-        cx, cy = 64, 168 # Centre de base
+        cx, cy = 64, 168 # Centre de base gauche
+        cx2, cy2 = 256, 184 # Centre de base droite
         dx, dy = 16, 8   # Décalage isométrique
         hw, hh = 16, 8   # Taille isométrique pour les boutons
         
@@ -256,6 +265,13 @@ class Game:
             '_go_fight':      {'c': (cx - dx*3, cy + dy*3), 'hw': hw, 'hh': hh}, # y OK
 
             '_battle_over':   {'c': (cx - dx*2, cy - dy*4), 'hw': hw, 'hh': hh}, # b OK
+
+            'x_Music':        {'c': (cx2,          cy2),          'hw': hw, 'hh': hh},
+            'x_FX':           {'c': (cx2 - dx*1,   cy2 + dy*1),   'hw': hw, 'hh': hh},
+            'x_Pause':        {'c': (cx2 + dx*1,   cy2 + dy*1),   'hw': hw, 'hh': hh},
+            'x_Balance':      {'c': (cx2 + dx*3,   cy2 - dy*3),   'hw': hw, 'hh': hh},
+            'x_World':        {'c': (cx2 + dx*3,   cy2 - dy*1),   'hw': hw, 'hh': hh},
+            'x_Tel':          {'c': (cx2 + dx*3,   cy2 + dy*1),   'hw': hw, 'hh': hh},
         }
 
         # Commande par défaut au lancement
@@ -273,7 +289,7 @@ class Game:
             sheet = pygame.image.load(button_ui_path).convert_alpha()
             sheet_w, sheet_h = sheet.get_size()
             sprite_w, sprite_h = 34, 17
-            for row in range(5):
+            for row in range(7):
                 for col in range(5):
                     x = col * sprite_w
                     y = row * sprite_h
@@ -282,9 +298,11 @@ class Game:
                         self.button_sprites.append(sheet.subsurface(rect))
         # Ordre des boutons pour l'indexation
         button_order = [
-            '_do_flood', '_battle_over', '_do_quake', 'NW', 'N', 'NE', '_do_shield', '_find_papal', '_find_knight',
-            '_do_volcano', '_do_knight', 'W', '_find_shield', 'E', '_raise_terrain', '_find_battle',
-            '_do_swamp', 'SW', 'S', 'SE', '_do_papal', '_go_papal', '_go_build', '_go_assemble', '_go_fight'
+            '_do_flood', '_battle_over', '_do_quake', 'N', 'NE', 'E', '_do_shield', '_find_papal', '_find_knight',
+            '_do_volcano', '_do_knight', 'NW', '_find_shield', 'SE', '_raise_terrain', '_find_battle',
+            '_do_swamp', 'W', 'SW', 'S', '_do_papal', '_go_papal', '_go_build', '_go_assemble', '_go_fight',
+            # -- Boutons options (index 25 à 30 = 6 images) --
+            'x_FX', 'x_Music', 'x_Pause', 'x_Balance', 'x_World', 'x_Tel'
         ]
         for idx, name in enumerate(button_order):
             self.button_sprite_indices[name] = idx 
@@ -298,6 +316,29 @@ class Game:
                     settings.GAME_OPTIONS.update(opts)
             except:
                 pass
+        
+        # Charger les niveaux depuis levels.txt
+        self.levels = {} # { "NAME": "HEX_CODE" }
+        self.level_names = [] # Liste ordonnée des noms de niveaux
+        levels_path = os.path.join(BASE_DIR, "levels.txt")
+        if os.path.exists(levels_path):
+            try:
+                with open(levels_path, "r") as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line or line.startswith("#"):
+                            continue
+                        parts = line.split()
+                        seed_name = parts[0].upper()
+                        self.level_names.append(seed_name)
+                        if len(parts) >= 2:
+                            hex_code = parts[1]
+                            self.levels[seed_name] = hex_code
+                        else:
+                            # Par défaut si pas de code (on pourrait incrémenter ou utiliser un défaut)
+                            self.levels[seed_name] = "0x0000000000000000" 
+            except Exception as e:
+                print(f"Error loading levels.txt: {e}")
 
     def _get_peep_sprite_rect(self, peep, cam_r, cam_c, offset_y=0):
         gr, gc = int(peep.y), int(peep.x)
@@ -622,6 +663,72 @@ class Game:
                 peep.set_command('_go_build')
                 self.peeps.append(peep)
 
+    def draw_scaled_mouse_cursor(self, surface):
+        sprites = Peep.get_sprites()
+        mx, my = pygame.mouse.get_pos()
+        pygame.mouse.set_visible(False)
+        
+        cursor_sprite = None
+        if getattr(self, 'papal_mode', False):
+            cursor_sprite = sprites.get((4, 14))
+        elif getattr(self, 'shield_mode', False):
+            cursor_sprite = sprites.get((8, 8))
+        else:
+            cursor_sprite = sprites.get((4, 12))
+            
+        if cursor_sprite:
+            scaled_w = cursor_sprite.get_width() * getattr(self, 'display_scale', 1)
+            scaled_h = cursor_sprite.get_height() * getattr(self, 'display_scale', 1)
+            scaled_cursor = pygame.transform.scale(cursor_sprite, (scaled_w, scaled_h))
+            sprite_rect = scaled_cursor.get_rect(topleft=(mx, my))
+            surface.blit(scaled_cursor, sprite_rect)
+
+    def _draw_menu_window(self, rect, title=None):
+        # Background (Opaque)
+        pygame.draw.rect(self.screen, (102, 34, 0), rect)
+        
+        s = self.display_scale
+        # Harmonized Emboss effect: Warm Orange-Tan for highlight, Dark Brown for shadow
+        high_color = (180, 110, 50)
+        low_color = (40, 15, 0)
+
+        # Highlight (Top and Left)
+        pygame.draw.rect(self.screen, high_color, (rect.x, rect.y, rect.width, s * 2))
+        pygame.draw.rect(self.screen, high_color, (rect.x, rect.y, s * 2, rect.height))
+        # Shadow (Bottom and Right)
+        pygame.draw.rect(self.screen, low_color, (rect.x, rect.bottom - s * 2, rect.width, s * 2))
+        pygame.draw.rect(self.screen, low_color, (rect.right - s * 2, rect.y, s * 2, rect.height))
+        
+        # Inner fine border (recessed look)
+        inner_rect = pygame.Rect(rect.x + 2*s, rect.y + 2*s, rect.width - 4*s, rect.height - 4*s)
+        pygame.draw.rect(self.screen, (64, 32, 16), inner_rect, 1 * s)
+        
+        if title:
+            title_surf = self.custom_font.render(title, (220, 160, 0), self.display_scale)
+            self.screen.blit(title_surf, (rect.centerx - title_surf.get_width() // 2, rect.top + 15 * self.display_scale))
+
+    def _draw_menu_button(self, rect, text, is_selected):
+        btn_bg_color = (150, 70, 0) if is_selected else (100, 40, 0)
+        btn_text_color = (255, 255, 0) if is_selected else (200, 150, 0)
+        
+        # Background
+        pygame.draw.rect(self.screen, btn_bg_color, rect)
+        
+        s = self.display_scale
+        # Emboss effect for button (Harmonized)
+        high_color = (40, 15, 0) if is_selected else (200, 130, 60)
+        low_color = (200, 130, 60) if is_selected else (40, 15, 0)
+        
+        # Top/Left
+        pygame.draw.rect(self.screen, high_color, (rect.x, rect.y, rect.width, s))
+        pygame.draw.rect(self.screen, high_color, (rect.x, rect.y, s, rect.height))
+        # Bottom/Right
+        pygame.draw.rect(self.screen, low_color, (rect.x, rect.bottom - s, rect.width, s))
+        pygame.draw.rect(self.screen, low_color, (rect.right - s, rect.y, s, rect.height))
+
+        btn_surf = self.custom_font.render(text, btn_text_color, self.display_scale)
+        self.screen.blit(btn_surf, (rect.centerx - btn_surf.get_width() // 2, rect.centery - btn_surf.get_height() // 2))
+
     def show_welcome_screen(self):
         welcome_path = os.path.join(BASE_DIR, "data", "gfx", "welcome.png")
         if os.path.exists(welcome_path):
@@ -658,53 +765,468 @@ class Game:
                             selected = (selected + 1) % len(options)
                         elif event.key in (pygame.K_RETURN, pygame.K_SPACE):
                             if options[selected] == "TUTORIAL":
+                                self.world_seed = "TUTORIAL"
                                 waiting = False
-                            # "CONQUEST" et "CUSTOM" seront implémentés plus tard
+                            elif options[selected] == "CONQUEST":
+                                code = self._show_input_box("ENTER CONQUEST CODE")
+                                if code:
+                                    if self._is_valid_code(code):
+                                        self.world_seed = code
+                                    else:
+                                        self.world_seed = "1" # Monde 1 par défaut
+                                    waiting = False
+                            elif options[selected] == "CUSTOM":
+                                self.world_seed = None # Aléatoire complet
+                                waiting = False
                         elif event.key == pygame.K_ESCAPE:
                             self.running = False
+                            waiting = False
+                    elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                        if options[selected] == "TUTORIAL":
+                            self.world_seed = "TUTORIAL"
+                            waiting = False
+                        elif options[selected] == "CONQUEST":
+                            code = self._show_input_box("ENTER CONQUEST CODE")
+                            if code:
+                                if self._is_valid_code(code):
+                                    self.world_seed = code
+                                else:
+                                    self.world_seed = "1"
+                                waiting = False
+                        elif options[selected] == "CUSTOM":
+                            self.world_seed = None
                             waiting = False
                 
                 self.screen.fill((0, 0, 0))
                 self.screen.blit(welcome_img, welcome_rect)
                 
-                # Dessiner le menu transparent en bas à droite
-                window_surface = pygame.Surface(self.screen.get_size(), pygame.SRCALPHA)
-                
+                # Ancienne fenêtre opaque en bas à droite
                 menu_w = 90 * self.display_scale
                 menu_h = 60 * self.display_scale
-                
-                # Position en bas à droite avec une marge
                 menu_x = self.screen.get_width() - menu_w - (10 * self.display_scale)
                 menu_y = self.screen.get_height() - menu_h - (10 * self.display_scale)
-                
                 menu_rect = pygame.Rect(menu_x, menu_y, menu_w, menu_h)
                 
-                # Arrière-plan transparent (gris sombre, plus transparent)
-                pygame.draw.rect(window_surface, (40, 40, 40, 150), menu_rect)
-                pygame.draw.rect(window_surface, (100, 100, 100, 200), menu_rect, 2 * self.display_scale)
+                pygame.draw.rect(self.screen, (40, 40, 40), menu_rect)
+                pygame.draw.rect(self.screen, (100, 100, 100), menu_rect, 2 * self.display_scale)
                 
-                self.screen.blit(window_surface, (0, 0))
-                
-                # Textes du menu
+                mx, my = pygame.mouse.get_pos()
+                for i, opt in enumerate(options):
+                    text_surf = self.custom_font.render(opt, (200, 200, 200, 255), self.display_scale)
+                    text_x = menu_x + (menu_w - text_surf.get_width()) // 2
+                    text_y = menu_y + (10 * self.display_scale) + (i * 15 * self.display_scale)
+                    rect = pygame.Rect(text_x, text_y, text_surf.get_width(), text_surf.get_height())
+                    if rect.collidepoint(mx, my):
+                        selected = i
+
                 for i, opt in enumerate(options):
                     color = (255, 255, 0, 255) if i == selected else (200, 200, 200, 255)
                     text_surf = self.custom_font.render(opt, color, self.display_scale)
-                    
                     text_x = menu_x + (menu_w - text_surf.get_width()) // 2
                     text_y = menu_y + (10 * self.display_scale) + (i * 15 * self.display_scale)
-                    
                     self.screen.blit(text_surf, (text_x, text_y))
                 
+                self.draw_scaled_mouse_cursor(self.screen)
                 pygame.display.flip()
                 self.clock.tick(60)
             
             pygame.event.clear()
 
+    def _is_valid_code(self, code):
+        """Vérifie si le code saisi est présent dans levels.txt."""
+        if not hasattr(self, 'levels'):
+            return False
+        return code.upper() in self.levels
+
+    def _apply_level_specs(self, code):
+        """
+        Applique les spécifications décodées depuis le code hexadécimal.
+        On attend la structure détaillée plus tard, pour l'instant on prépare le décodage.
+        """
+        if not hasattr(self, 'levels') or code not in self.levels:
+            # Valeurs par défaut (ou niveau 1 par sécurité)
+            self.ai.set_difficulty(reaction_speed=5, command_rate=5)
+            self.allowed_powers_mask = 0b1111111111111
+            return
+
+        hex_str = self.levels[code]
+        try:
+            # Extraction temporaire (exemple: les derniers bits pour le masque de pouvoirs)
+            # En attendant la structure précise du code hexa, on garde une logique flexible
+            val = int(hex_str, 16)
+            
+            # Exemple de répartition (à ajuster selon tes futures specs) :
+            # bits 0-12 : powers_mask
+            # bits 13-16 : reaction_speed (0-15)
+            # bits 17-20 : command_rate (0-15)
+            
+            self.allowed_powers_mask = val & 0x1FFF # 13 bits
+            
+            ai_speed = (val >> 13) & 0xF
+            ai_cmd = (val >> 17) & 0xF
+            
+            # Si le code est tout à F (initialisation par défaut levels.txt), on met des valeurs max
+            if val == 0xFFFFFFFFFFFFFFFF:
+                self.ai.set_difficulty(reaction_speed=5, command_rate=5)
+                self.allowed_powers_mask = 0b1111111111111
+            else:
+                self.ai.set_difficulty(reaction_speed=ai_speed, command_rate=ai_cmd)
+        except Exception as e:
+            print(f"Error decoding hex specs for {code}: {e}")
+            self.ai.set_difficulty(reaction_speed=5, command_rate=5)
+            self.allowed_powers_mask = 0b1111111111111
+
+    def _show_input_box(self, title):
+        """Affiche une boîte de saisie pour entrer un code."""
+        input_text = ""
+        waiting_input = True
+        s = self.display_scale
+        
+        # Snapshot du fond pour le redessiner
+        bg_snapshot = self.screen.copy()
+        
+        while waiting_input and self.running:
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    self.running = False
+                    waiting_input = False
+                elif event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_RETURN:
+                        if len(input_text) > 0:
+                            waiting_input = False
+                            return input_text
+                    elif event.key == pygame.K_ESCAPE:
+                        waiting_input = False
+                        return None
+                    elif event.key == pygame.K_BACKSPACE:
+                        input_text = input_text[:-1]
+                    else:
+                        # On limite au charset de la font
+                        char = event.unicode.upper()
+                        if char in "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789":
+                            if len(input_text) < 12:
+                                input_text += char
+            
+            self.screen.blit(bg_snapshot, (0, 0))
+            
+            # Fenêtre d'input
+            box_w, box_h = 200 * s, 80 * s
+            box_x = (self.screen.get_width() - box_w) // 2
+            box_y = (self.screen.get_height() - box_h) // 2
+            box_rect = pygame.Rect(box_x, box_y, box_w, box_h)
+            
+            self._draw_menu_window(box_rect, title)
+            
+            # Zone de saisie
+            input_rect_w = 160 * s
+            input_rect_h = 16 * s
+            input_rect = pygame.Rect(box_x + (box_w - input_rect_w) // 2, box_y + 40 * s, input_rect_w, input_rect_h)
+            pygame.draw.rect(self.screen, (20, 10, 0), input_rect)
+            pygame.draw.rect(self.screen, (100, 70, 30), input_rect, 1 * s)
+            
+            # Texte saisi
+            text_surf = self.custom_font.render(input_text + ("_" if (time.time() * 2) % 2 > 1 else ""), (255, 255, 255), s)
+            self.screen.blit(text_surf, (input_rect.x + 5 * s, input_rect.y + (input_rect_h - text_surf.get_height()) // 2))
+            
+            self.draw_scaled_mouse_cursor(self.screen)
+            pygame.display.flip()
+            self.clock.tick(60)
+        
+        return None
+
+    def _play_endgame_video(self, current_name, next_name):
+        video_path = os.path.join(GFX_DIR, "Endgame.mp4")
+        if not os.path.exists(video_path):
+            return
+
+        try:
+            import cv2
+            from ffpyplayer.player import MediaPlayer
+            print("DEBUG: OpenCV and ffpyplayer found")
+        except ImportError:
+            # Si pas d'OpenCV ou ffpyplayer, on affiche juste le message sur fond noir
+            print("DEBUG: Dependencies NOT found, using fallback")
+            message = f"WELL DONE MORTAL, YOU CONQUERED {current_name} NOW BATTLE AT {next_name}"
+            
+            waiting = True
+            while waiting:
+                for event in pygame.event.get():
+                    if event.type == pygame.QUIT:
+                        self.running = False
+                        waiting = False
+                    if event.type in (pygame.KEYDOWN, pygame.MOUSEBUTTONDOWN):
+                        waiting = False
+                
+                self.screen.fill((0, 0, 0))
+                if hasattr(self, 'custom_font'):
+                    text_surf = self.custom_font.render(message, (255, 255, 0), self.display_scale)
+                    self.screen.blit(text_surf, ((self.screen.get_width() - text_surf.get_width()) // 2, self.screen.get_height() // 2))
+                pygame.display.flip()
+                self.clock.tick(60)
+            return
+
+        cap = cv2.VideoCapture(video_path)
+        player = MediaPlayer(video_path)
+        
+        if not cap.isOpened():
+            print(f"DEBUG: Could not open video file {video_path}")
+            return
+        
+        print("DEBUG: Video and Audio opened successfully")
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        if fps <= 0: fps = 30
+        
+        line1 = "WELL DONE MORTAL, YOU CONQUERED"
+        line2 = f"{current_name} NOW BATTLE AT {next_name}"
+        
+        clock = pygame.time.Clock()
+        last_frame_surface = None
+        running = True
+        
+        while running:
+            # Récupérer l'audio
+            audio_frame, val = player.get_frame()
+            if val == 'eof':
+                # On ne quitte pas forcément, on laisse la boucle finir le rendu
+                pass
+                
+            ret, frame = cap.read()
+            if ret:
+                # Convert OpenCV BGR to Pygame RGB
+                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                frame = cv2.transpose(frame)
+                frame_surface = pygame.surfarray.make_surface(frame)
+                
+                # Scale to fit FULL screen
+                sw, sh = self.screen.get_size()
+                scale_factor = min(sw / frame_surface.get_width(), sh / frame_surface.get_height())
+                new_w = int(frame_surface.get_width() * scale_factor)
+                new_h = int(frame_surface.get_height() * scale_factor)
+                
+                last_frame_surface = pygame.transform.scale(frame_surface, (new_w, new_h))
+                
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    self.running = False
+                    running = False
+                if event.type in (pygame.KEYDOWN, pygame.MOUSEBUTTONDOWN):
+                    running = False
+            
+            if last_frame_surface:
+                sw, sh = self.screen.get_size()
+                self.screen.fill((0, 0, 0))
+                # Centrer la vidéo sur tout l'écran
+                self.screen.blit(last_frame_surface, ((sw - last_frame_surface.get_width()) // 2, (sh - last_frame_surface.get_height()) // 2))
+                
+                # Afficher le texte par-dessus sur 2 lignes
+                if hasattr(self, 'custom_font'):
+                    surf1 = self.custom_font.render(line1, (255, 255, 0), self.display_scale)
+                    surf2 = self.custom_font.render(line2, (255, 255, 0), self.display_scale)
+                    
+                    padding = 20 * self.display_scale
+                    y2 = sh - padding - surf2.get_height()
+                    y1 = y2 - surf1.get_height() - (5 * self.display_scale)
+                    
+                    self.screen.blit(surf1, ((sw - surf1.get_width()) // 2, y1))
+                    self.screen.blit(surf2, ((sw - surf2.get_width()) // 2, y2))
+                    
+                pygame.display.flip()
+            
+            if ret:
+                # On se cale sur le playback d'ffpyplayer si possible pour la synchro
+                if val != 'eof' and val > 0:
+                    time.sleep(val)
+                else:
+                    clock.tick(fps)
+            else:
+                clock.tick(60)
+            
+        player.toggle_pause() # On pause l'audio à la fin
+        cap.release()
+
+    def show_end_screen(self):
+        # Statistiques
+        a_stats = {}
+        f_stats = {}
+
+        if not hasattr(self.game_map, 'stats'):
+            self.game_map.stats = {'battles_won': {'allies': 0, 'foes': 0}}
+        
+        a_stats['battles_won'] = self.game_map.stats['battles_won'].get('allies', 0)
+        f_stats['battles_won'] = self.game_map.stats['battles_won'].get('foes', 0)
+        
+        a_stats['knights'] = sum(1 for p in self.peeps if getattr(p, 'is_knight', False) and p.team == 'allies' and not p.dead)
+        f_stats['knights'] = sum(1 for p in self.peeps if getattr(p, 'is_knight', False) and p.team == 'foes' and not p.dead)
+
+        a_stats['towns'] = sum(1 for h in self.game_map.houses if getattr(h, 'team', 'allies') == 'allies' and not getattr(h, 'destroyed', False) and 'castle' not in h.building_type and 'fortress' not in h.building_type)
+        f_stats['towns'] = sum(1 for h in self.game_map.houses if getattr(h, 'team', 'allies') == 'foes' and not getattr(h, 'destroyed', False) and 'castle' not in h.building_type and 'fortress' not in h.building_type)
+
+        a_stats['castles'] = sum(1 for h in self.game_map.houses if getattr(h, 'team', 'allies') == 'allies' and not getattr(h, 'destroyed', False) and ('castle' in h.building_type or 'fortress' in h.building_type))
+        f_stats['castles'] = sum(1 for h in self.game_map.houses if getattr(h, 'team', 'allies') == 'foes' and not getattr(h, 'destroyed', False) and ('castle' in h.building_type or 'fortress' in h.building_type))
+
+        score = a_stats['battles_won'] * 150 + a_stats['knights'] * 50 + a_stats['towns'] * 100 + a_stats['castles'] * 200
+
+        # Snapshot du jeu
+        bg_snapshot = self.screen.copy()
+        
+        waiting = True
+        
+        # S'assurer que custom_font est là
+        if not hasattr(self, 'custom_font'):
+            charset = "abcdefghijklmnopqrstuvwxyz1234567890!@#+-_()*%[].:"
+            self.custom_font = BitmapFont(os.path.join(GFX_DIR, "font.png"), charset, 6, 5, 1, 1)
+        
+        while waiting and self.running:
+            mx, my = pygame.mouse.get_pos()
+            
+            menu_w = 260 * self.display_scale
+            menu_h = 180 * self.display_scale
+            cx = self.screen.get_width() // 2
+            cy = self.screen.get_height() // 2
+            menu_rect = pygame.Rect(cx - menu_w // 2, cy - menu_h // 2, menu_w, menu_h)
+            
+            btn_w = 60 * self.display_scale
+            btn_h = 16 * self.display_scale
+            btn_y = menu_rect.bottom - btn_h - 15 * self.display_scale
+            # ok_rect et cancel_rect sont supprimés au profit du bouton NEW GAME unique
+
+            # Restaurer le fond
+            self.screen.blit(bg_snapshot, (0, 0))
+
+            # Utilisation de la nouvelle charte graphique harmonisée
+            title_text = "GAME WON" if self.game_winner == 'allies' else "GAME LOST"
+            self._draw_menu_window(menu_rect, title_text)
+
+            # YOU / HIM headers
+            col_x1 = cx + 20 * self.display_scale
+            col_x2 = cx + 80 * self.display_scale
+            
+            headers = [("YOU", col_x1), ("HIM", col_x2)]
+            for text, x in headers:
+                text_surf = self.custom_font.render(text, (255, 200, 0), self.display_scale)
+                self.screen.blit(text_surf, (x, cy - menu_h // 2 + 30 * self.display_scale))
+            
+            # Lignes de stats
+            lines = [
+                ("BATTLES WON", str(a_stats['battles_won']), str(f_stats['battles_won'])),
+                ("NUMBER OF KNIGHTS", str(a_stats['knights']), str(f_stats['knights'])),
+                ("NUMBER OF TOWNS", str(a_stats['towns']), str(f_stats['towns'])),
+                ("NUMBER OF CASTLES", str(a_stats['castles']), str(f_stats['castles']))
+            ]
+            
+            start_y = cy - menu_h // 2 + 60 * self.display_scale
+            for i, (label, val_a, val_f) in enumerate(lines):
+                y = start_y + i * 15 * self.display_scale
+                surf_label = self.custom_font.render(label, (255, 200, 0), self.display_scale)
+                self.screen.blit(surf_label, (cx - menu_w // 2 + 10 * self.display_scale, y))
+                
+                surf_a = self.custom_font.render(val_a, (255, 200, 0), self.display_scale)
+                self.screen.blit(surf_a, (col_x1, y))
+                
+                surf_f = self.custom_font.render(val_f, (255, 200, 0), self.display_scale)
+                self.screen.blit(surf_f, (col_x2, y))
+
+            # score total (doublon supprimé)
+            # Boutons OK/CANCEL (doublon supprimé)
+
+            # Score
+            score_y = start_y + 4 * 15 * self.display_scale # Décalage après Castles
+            surf_score_label = self.custom_font.render("YOUR SCORE", (255, 200, 0), self.display_scale)
+            self.screen.blit(surf_score_label, (cx - menu_w // 2 + 10 * self.display_scale, score_y))
+            
+            surf_score_val = self.custom_font.render(str(score), (255, 255, 0), self.display_scale)
+            self.screen.blit(surf_score_val, (col_x1, score_y))
+
+            # Bouton NEW GAME / NEXT
+            btn_label = "NEXT" if (self.world_seed is not None and self.world_seed != "TUTORIAL") else "NEW GAME"
+            btn_w = 80 * self.display_scale
+            btn_h = 24 * self.display_scale
+            btn_rect = pygame.Rect(cx - btn_w // 2, menu_rect.bottom - btn_h - 10 * self.display_scale, btn_w, btn_h)
+            
+            mx, my = pygame.mouse.get_pos()
+            is_hovered = btn_rect.collidepoint(mx, my)
+
+            # Dessiner le bouton NEW GAME / NEXT au lieu de OK/CANCEL
+            self._draw_menu_button(btn_rect, btn_label, is_hovered)
+
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    self.running = False
+                    waiting = False
+                elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                    if btn_rect.collidepoint(mx, my):
+                        waiting = False
+                elif event.type == pygame.KEYDOWN:
+                    if event.key in (pygame.K_RETURN, pygame.K_SPACE):
+                        waiting = False
+                    elif event.key == pygame.K_ESCAPE:
+                        self.running = False
+                        waiting = False
+
+            self.draw_scaled_mouse_cursor(self.screen)
+            pygame.display.flip()
+            self.clock.tick(60)
+            
+        pygame.event.clear()
+        
+        # Logique de transition pour le mode Conquest
+        next_seed = None
+        if self.game_winner == 'allies' and self.world_seed is not None and self.world_seed != "TUTORIAL":
+            try:
+                curr_name = str(self.world_seed).upper()
+                # Si on est au niveau 1 par défaut, on commence par le premier nom de la liste
+                if (curr_name == "1" or curr_name == "GENESIS") and self.level_names:
+                    curr_name = self.level_names[0]
+                
+                print(f"DEBUG: Ending level {curr_name}")
+                if curr_name in self.level_names:
+                    idx = self.level_names.index(curr_name)
+                    print(f"DEBUG: Level index {idx}")
+                    if idx + 1 < len(self.level_names):
+                        next_seed = self.level_names[idx + 1]
+                        print(f"DEBUG: Next level will be {next_seed}")
+                        self._play_endgame_video(curr_name, next_seed)
+                    else:
+                        print("DEBUG: No more levels in level_names")
+                else:
+                    print(f"DEBUG: {curr_name} not found in level_names: {self.level_names}")
+            except Exception as e:
+                print(f"Error transitionning to next level: {e}")
+
+        if self.running:
+            # Réinitialiser les drapeaux de fin de partie
+            self.game_over = False
+            self.game_winner = None
+            # Relancer une partie avec le nouveau seed si dispo
+            self.__init__(world_seed=next_seed)
+            self.run()
+
     def run(self):
-        self.show_welcome_screen()
+        if self.world_seed is None or self.world_seed == "TUTORIAL" or self.world_seed == "1" or self.world_seed == "GENESIS":
+            self.show_welcome_screen()
         if not self.running:
             return
             
+        # Initialiser le monde avec le seed choisi le cas échéant
+        seed_to_use = self.world_seed
+        if self.world_seed and self.world_seed.upper() in self.levels:
+            # On utilise directement le nom saisi comme seed, et on applique les specs du code hexa
+            self._apply_level_specs(self.world_seed.upper())
+        elif self.world_seed is not None:
+            # Si un code a été tenté mais n'est pas dans le fichier (mode conquête)
+            # On force le premier niveau de la liste par défaut
+            if self.level_names:
+                seed_to_use = self.level_names[0]
+                self._apply_level_specs(seed_to_use)
+            else:
+                seed_to_use = "1"
+                self._apply_level_specs(None)
+        else:
+            # Mode Custom ou Tutorial (gestion simplifiée pour l'exemple)
+            self._apply_level_specs(None)
+
+        self.game_map.randomize(seed=seed_to_use)
+        
         pygame.mouse.set_visible(False)
         self.spawn_initial_peeps(10)
         while self.running:
@@ -716,6 +1238,33 @@ class Game:
     def _handle_ui_click(self, action, held=False):
         import time
         self.last_button_click = (action, time.time())
+
+        # Vérifier si le pouvoir est autorisé par le masque du niveau
+        # Indexation binaire des pouvoirs (à titre indicatif)
+        power_indices = {
+            '_raise_terrain': 0,
+            '_lower_terrain': 0, # Souvent couplés
+            '_do_papal': 1,
+            '_do_quake': 2,
+            '_do_swamp': 3,
+            '_do_knight': 4,
+            '_do_volcano': 5,
+            '_do_flood': 6,
+            '_battle_over': 7,
+            '_do_shield': 8,
+            '_find_battle': 9,
+            '_find_shield': 10,
+            '_find_papal': 11,
+            '_find_knight': 12
+        }
+        
+        if action in power_indices:
+            idx = power_indices[action]
+            mask = getattr(self, 'allowed_powers_mask', 0b1111111111111)
+            if not (mask & (1 << idx)):
+                print(f"Pouvoir {action} désactivé pour ce monde !")
+                return
+
         # Annule tout mode spécial si une autre action est sélectionnée
         if action != '_do_papal':
             self.papal_mode = False
@@ -727,7 +1276,6 @@ class Game:
             if held:
                 self.dpad_held_direction = action
                 self.dpad_held_timer = 0.0  # scroll immédiat
-                self.dpad_last_flash_time = time.time()
             self.move_camera_direction(action)
         elif action == '_do_papal':
             print("Mode papal activé")
@@ -874,6 +1422,12 @@ class Game:
                     self.view_who = target
                     self.view_type = 'peep' if isinstance(target, Peep) else 'house'
                     print(f"Caméra centrée sur le shield ({r}, {c})")
+        elif action in ['x_FX', 'x_Music', 'x_Pause', 'x_Balance', 'x_World', 'x_Tel']:
+            # Boutons d'options
+            print(f"Bouton option cliqué : {action}")
+            if action == 'x_Pause':
+                self.paused = not getattr(self, 'paused', False)
+                print("Jeu en pause" if self.paused else "Jeu repris")
         else:
             # Commandes de déplacement peep : activation exclusive
             if action in ['_go_build', '_go_assemble', '_go_papal', '_go_fight']:
@@ -924,23 +1478,32 @@ class Game:
         import settings
         options_running = True
         # Definitions des options: [label_off, label_on, state, key]
-        # state: False = off ('.'), True = on (':')
+        # state: False = off, True = on
         menu_items = [
-            ["water is harmful", "water is fatal", settings.GAME_OPTIONS.get("water_fatal", False), "water_fatal"],
-            ["swamps shallow", "swamps botomless", settings.GAME_OPTIONS.get("swamps_bottomless", False), "swamps_bottomless"],
-            ["can build", "cannot build", settings.GAME_OPTIONS.get("cannot_build", False), "cannot_build"],
-            ["build up and down", "only build up", settings.GAME_OPTIONS.get("only_build_up", False), "only_build_up"],
-            ["build near people", "build near towns", settings.GAME_OPTIONS.get("build_near_towns", True), "build_near_towns"],
-            ["BACK TO MENU", "BACK TO MENU", False, None]
+            ["WATER IS HARMFUL", "WATER IS FATAL", settings.GAME_OPTIONS.get("water_fatal", False), "water_fatal"],
+            ["SWAMPS SHALLOW", "SWAMPS BOTOMLESS", settings.GAME_OPTIONS.get("swamps_bottomless", False), "swamps_bottomless"],
+            ["CAN BUILD", "CANNOT BUILD", settings.GAME_OPTIONS.get("cannot_build", False), "cannot_build"],
+            ["BUILD UP AND DOWN", "ONLY BUILD UP", settings.GAME_OPTIONS.get("only_build_up", False), "only_build_up"],
+            ["BUILD NEAR PEOPLE", "BUILD NEAR TOWNS", settings.GAME_OPTIONS.get("build_near_towns", True), "build_near_towns"]
         ]
         
         selected = 0
         bg_snapshot = self.screen.copy()
         cx = self.screen.get_width() // 2
         cy = self.screen.get_height() // 2
-        menu_w = 160 * self.display_scale
-        menu_h = 130 * self.display_scale
+        menu_w = 260 * self.display_scale
+        menu_h = 160 * self.display_scale
         menu_rect = pygame.Rect(cx - menu_w // 2, cy - menu_h // 2, menu_w, menu_h)
+
+        def save_and_close():
+            for item in menu_items:
+                settings.GAME_OPTIONS[item[3]] = item[2]
+            config_path = os.path.join(BASE_DIR, "options.json")
+            try:
+                with open(config_path, "w") as f:
+                    json.dump(settings.GAME_OPTIONS, f)
+            except:
+                pass
 
         while options_running:
             for event in pygame.event.get():
@@ -949,72 +1512,101 @@ class Game:
                     options_running = False
                 elif event.type == pygame.KEYDOWN:
                     if event.key in (pygame.K_UP, pygame.K_w):
-                        selected = (selected - 1) % len(menu_items)
+                        selected = (selected - 1) % (len(menu_items) + 2)
                     elif event.key in (pygame.K_DOWN, pygame.K_s):
-                        selected = (selected + 1) % len(menu_items)
+                        selected = (selected + 1) % (len(menu_items) + 2)
                     elif event.key == pygame.K_ESCAPE:
                         options_running = False
                     elif event.key in (pygame.K_RETURN, pygame.K_SPACE):
-                        if selected == len(menu_items) - 1: # Return
-                            # Sauvegarder avant de partir
-                            for item in menu_items:
-                                if item[3] is not None:
-                                    settings.GAME_OPTIONS[item[3]] = item[2]
-                            config_path = os.path.join(BASE_DIR, "options.json")
-                            try:
-                                with open(config_path, "w") as f:
-                                    json.dump(settings.GAME_OPTIONS, f)
-                            except:
-                                pass
+                        if selected == len(menu_items): # OK
+                            save_and_close()
+                            options_running = False
+                        elif selected == len(menu_items) + 1: # CANCEL
                             options_running = False
                         else:
                             menu_items[selected][2] = not menu_items[selected][2]
+                elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                    if selected == len(menu_items): # OK
+                        save_and_close()
+                        options_running = False
+                    elif selected == len(menu_items) + 1: # CANCEL
+                        options_running = False
+                    else:
+                        menu_items[selected][2] = not menu_items[selected][2]
 
             self.screen.blit(bg_snapshot, (0, 0))
-            window_surface = pygame.Surface(self.screen.get_size(), pygame.SRCALPHA)
-            # Augmentation de l'opacité (230 au lieu de 200 sur 255)
-            pygame.draw.rect(window_surface, (102, 34, 0, 230), menu_rect)
-            pygame.draw.rect(window_surface, (200, 150, 80, 255), menu_rect, 2 * self.display_scale)
-            self.screen.blit(window_surface, (0, 0))
+            
+            # Utilisation de la nouvelle charte graphique harmonisée
+            self._draw_menu_window(menu_rect, "SET GAME OPTIONS")
 
-            title_surf = self.custom_font.render("OPTIONS", (255, 255, 255), self.display_scale)
-            self.screen.blit(title_surf, (cx - title_surf.get_width() // 2, cy - menu_h // 2 + 10 * self.display_scale))
-
+            mx, my = pygame.mouse.get_pos()
+            
+            # Calcul des rects pour détection du hover
+            start_y = cy - menu_h // 2 + 40 * self.display_scale
             for i, item in enumerate(menu_items):
-                # Correction du déballage : on ignore la clé de sauvegarde
-                label_off, label_on, state, key = item
-                color = (255, 255, 0, 255) if i == selected else (200, 200, 200, 255)
-                
-                if i == len(menu_items) - 1:
-                    display_text = label_off
-                else:
-                    prefix = ":" if state else "."
-                    display_text = f"{prefix} {label_on if state else label_off}"
-                
-                text_surf = self.custom_font.render(display_text.lower(), color, self.display_scale)
-                text_rect = text_surf.get_rect(midleft=(cx - menu_w // 2 + 10 * self.display_scale, cy - 25 * self.display_scale + i * 12 * self.display_scale))
-                self.screen.blit(text_surf, text_rect)
+                item_y = start_y + i * 15 * self.display_scale
+                item_rect = pygame.Rect(cx - menu_w // 2 + 20 * self.display_scale, item_y, menu_w - 40 * self.display_scale, 12 * self.display_scale)
+                if item_rect.collidepoint(mx, my):
+                    selected = i
+            
+            btn_w = 60 * self.display_scale
+            btn_h = 16 * self.display_scale
+            btn_y = cy + menu_h // 2 - btn_h - 15 * self.display_scale
+            ok_rect = pygame.Rect(menu_rect.left + 25 * self.display_scale, btn_y, btn_w, btn_h)
+            cancel_rect = pygame.Rect(menu_rect.right - btn_w - 25 * self.display_scale, btn_y, btn_w, btn_h)
 
+            if ok_rect.collidepoint(mx, my):
+                selected = len(menu_items)
+            elif cancel_rect.collidepoint(mx, my):
+                selected = len(menu_items) + 1
+
+            # Dessin des items (avec caractères spéciaux mimiquant les checkboxes)
+            for i, item in enumerate(menu_items):
+                label_off, label_on, state, key = item
+                color = (255, 255, 0, 255) if i == selected else (200, 150, 0, 255)
+                
+                prefix = ":" if state else "."
+                display_text = f"{prefix} {label_on if state else label_off}"
+                
+                text_surf = self.custom_font.render(display_text, color, self.display_scale)
+                item_x = cx - menu_w // 2 + 20 * self.display_scale
+                item_y = start_y + i * 15 * self.display_scale
+                self.screen.blit(text_surf, (item_x, item_y))
+
+            # Boutons harmonisés
+            self._draw_menu_button(ok_rect, "OK", selected == len(menu_items))
+            self._draw_menu_button(cancel_rect, "CANCEL", selected == len(menu_items) + 1)
+
+            self.draw_scaled_mouse_cursor(self.screen)
             pygame.display.flip()
             self.clock.tick(60)
 
     def show_pause_menu(self):
         menu_running = True
-        options = ["OPTIONS", "QUIT", "BACK TO GAME"]
+        options = ["OPTIONS", "QUIT"]
         selected = 0
         
-        # On capture l'écran actuel pour éviter que la transparence ne se superpose en boucle
         bg_snapshot = self.screen.copy()
         
-        # Chargement de la police bitmap personnalisée
         if not hasattr(self, 'custom_font'):
             charset = "abcdefghijklmnopqrstuvwxyz1234567890!@#+-_()*%[].:"
             self.custom_font = BitmapFont(os.path.join(GFX_DIR, "font.png"), charset, 6, 5, 1, 1)
         
-        def render_pixelated(text, color, scale):
-            return self.custom_font.render(text, color, scale)
-            
         while menu_running:
+            mx, my = pygame.mouse.get_pos()
+            
+            menu_w = 140 * self.display_scale
+            menu_h = 100 * self.display_scale
+            cx = self.screen.get_width() // 2
+            cy = self.screen.get_height() // 2
+            menu_rect = pygame.Rect(cx - menu_w // 2, cy - menu_h // 2, menu_w, menu_h)
+            
+            btn_w = 60 * self.display_scale
+            btn_h = 16 * self.display_scale
+            btn_y = menu_rect.bottom - btn_h - 15 * self.display_scale
+            ok_rect = pygame.Rect(menu_rect.left + 5 * self.display_scale, btn_y, btn_w, btn_h)
+            cancel_rect = pygame.Rect(menu_rect.right - btn_w - 5 * self.display_scale, btn_y, btn_w, btn_h)
+
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     self.running = False
@@ -1027,43 +1619,70 @@ class Game:
                     elif event.key == pygame.K_ESCAPE:
                         menu_running = False
                     elif event.key in (pygame.K_RETURN, pygame.K_SPACE):
+                        # OK est sélectionné par défaut si on appuie sur Entrée ?
+                        # On va dire que si selected est sur un item, Entrée l'active.
                         if selected == 0: # Options
                             self.show_options_menu()
                         elif selected == 1: # Quit
                             self.running = False
                             menu_running = False
-                        elif selected == 2: # Return
+                        elif selected == len(options): # OK Button
+                            if options[selected % len(options)] == "OPTIONS":
+                                self.show_options_menu()
+                            else:
+                                self.running = False
+                                menu_running = False
+                        elif selected == len(options) + 1: # CANCEL Button
                             menu_running = False
+                elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                    if ok_rect.collidepoint(mx, my):
+                        if options[selected % len(options)] == "OPTIONS":
+                            self.show_options_menu()
+                        else:
+                            self.running = False
+                            menu_running = False
+                    elif cancel_rect.collidepoint(mx, my):
+                        menu_running = False
+                    else:
+                        for i, opt in enumerate(options):
+                            item_x = cx - menu_w // 2 + 20 * self.display_scale
+                            item_y = menu_rect.top + 35 * self.display_scale + (i * 15 * self.display_scale)
+                            item_rect = pygame.Rect(item_x, item_y, menu_w - 40 * self.display_scale, 12 * self.display_scale)
+                            if item_rect.collidepoint(mx, my):
+                                if opt == "OPTIONS":
+                                    self.show_options_menu()
+                                elif opt == "QUIT":
+                                    self.running = False
+                                    menu_running = False
 
-            # Restaurer le fond du jeu
             self.screen.blit(bg_snapshot, (0, 0))
-
-            # Dessiner la fenêtre semi-transparente
-            window_surface = pygame.Surface(self.screen.get_size(), pygame.SRCALPHA)
             
-            menu_w = 120 * self.display_scale
-            menu_h = 100 * self.display_scale
-            cx = self.screen.get_width() // 2
-            cy = self.screen.get_height() // 2
-            menu_rect = pygame.Rect(cx - menu_w // 2, cy - menu_h // 2, menu_w, menu_h)
-            
-            # Augmentation de l'opacité (230 au lieu de 200 sur 255)
-            pygame.draw.rect(window_surface, (102, 34, 0, 230), menu_rect)
-            # Bordure pour démarquer la fenêtre
-            pygame.draw.rect(window_surface, (200, 150, 80, 255), menu_rect, 2 * self.display_scale)
-            
-            self.screen.blit(window_surface, (0, 0))
+            # Utilisation de la nouvelle charte graphique
+            self._draw_menu_window(menu_rect, "PAUSE MENU")
 
-            # Dessiner les textes avec la technique de pixélisation
-            title_surf = render_pixelated("MENU", (255, 255, 255), self.display_scale)
-            self.screen.blit(title_surf, (cx - title_surf.get_width() // 2, cy - menu_h // 2 + 10 * self.display_scale))
-
+            # Items du menu
             for i, opt in enumerate(options):
-                color = (255, 255, 0, 255) if i == selected else (200, 200, 200, 255)
-                text_surf = render_pixelated(opt, color, self.display_scale)
-                text_rect = text_surf.get_rect(center=(cx, cy - 5 * self.display_scale + i * 15 * self.display_scale))
-                self.screen.blit(text_surf, text_rect)
+                item_x = cx - menu_w // 2 + 20 * self.display_scale
+                item_y = menu_rect.top + 35 * self.display_scale + (i * 15 * self.display_scale)
+                item_rect = pygame.Rect(item_x, item_y, menu_w - 40 * self.display_scale, 12 * self.display_scale)
+                
+                if item_rect.collidepoint(mx, my):
+                    selected = i
+                
+                color = (255, 255, 0, 255) if i == selected else (200, 150, 0, 255)
+                text_surf = self.custom_font.render(opt, color, self.display_scale)
+                self.screen.blit(text_surf, (item_x, item_y))
 
+            # Boutons OK/CANCEL
+            if ok_rect.collidepoint(mx, my):
+                selected = len(options)
+            elif cancel_rect.collidepoint(mx, my):
+                selected = len(options) + 1
+
+            self._draw_menu_button(ok_rect, "OK", selected == len(options))
+            self._draw_menu_button(cancel_rect, "CANCEL", selected == len(options) + 1)
+
+            self.draw_scaled_mouse_cursor(self.screen)
             pygame.display.flip()
             self.clock.tick(60)
 
@@ -1174,6 +1793,8 @@ class Game:
                                 self._handle_ui_click('_raise_terrain', held=False)
                             return
                         elif not self.papal_mode and not self.shield_mode and not self.volcano_mode:
+                            if getattr(self, 'paused', False):
+                                continue  # Pas de terraforming en pause
                             if event.button == 1:
                                 cost = self.game_map.get_raise_cost(r, c)
                                 if cost > 0:
@@ -1225,6 +1846,24 @@ class Game:
 
     def update(self, dt):
         import time
+
+        # -- MISES A JOUR D'INTERFACE & CAMERA (TOUJOURS ACTIVES) --
+        if self.dpad_held_direction:
+            self.dpad_held_timer -= dt
+            if self.dpad_held_timer <= 0.0:
+                self.move_camera_direction(self.dpad_held_direction)
+                self.dpad_held_timer = self.dpad_repeat_delay
+                self.last_button_click = (self.dpad_held_direction, time.time())
+                
+        cam_dir = self.camera.update(dt)
+        if cam_dir:
+            self.last_button_click = (cam_dir, time.time())
+
+        # Si le jeu est en pause, on empêche l'update des entités du jeu mais on permet le déplacement caméra/UI
+        if getattr(self, 'paused', False):
+            return
+
+        # -- MISES A JOUR DU JEU (BLOQUEES EN PAUSE) --
         # Mise à jour des jauges de pouvoir
         sum_growth = {'allies': 0, 'foes': 0}
         for house in self.game_map.houses:
@@ -1289,13 +1928,6 @@ class Game:
         if getattr(self, 'ai', None):
             self.ai.update(dt)
 
-        if self.dpad_held_direction:
-            self.dpad_held_timer -= dt
-            if self.dpad_held_timer <= 0.0:
-                self.move_camera_direction(self.dpad_held_direction)
-                self.dpad_held_timer = self.dpad_repeat_delay
-                self.dpad_last_flash_time = time.time()
-
         # Mise à jour du tremblement de terre
         if getattr(self, 'quake_timer', 0) > 0:
             self.quake_timer -= dt
@@ -1313,8 +1945,6 @@ class Game:
                 if self.quake_target:
                     self.game_map.do_quake(self.quake_target[0], self.quake_target[1])
                     self.quake_target = None
-
-        self.camera.update(dt)
 
         # Appairage de combat (magnet, comme go_assemble) - fait ici car on a accès à self.peeps
         COMBAT_STATES = ('battle', 'wait_for_enemy', 'charge_enemy', 'victory_before', 'victory_main')
@@ -1485,6 +2115,22 @@ class Game:
         self.game_map.houses = houses_to_keep
         self.peeps.extend(new_peeps)
 
+        # Check end game condition
+        if not getattr(self, 'game_over', False):
+            allies_peeps = sum(1 for p in self.peeps if p.team == 'allies' and not p.dead)
+            foes_peeps = sum(1 for p in self.peeps if p.team == 'foes' and not p.dead)
+            allies_houses = sum(1 for h in self.game_map.houses if getattr(h, 'team', 'allies') == 'allies' and not getattr(h, 'destroyed', False))
+            foes_houses = sum(1 for h in self.game_map.houses if getattr(h, 'team', 'allies') == 'foes' and not getattr(h, 'destroyed', False))
+            
+            if allies_peeps == 0 and allies_houses == 0:
+                self.game_over = True
+                self.game_winner = 'foes'
+                self.show_end_screen()
+            elif foes_peeps == 0 and foes_houses == 0:
+                self.game_over = True
+                self.game_winner = 'allies'
+                self.show_end_screen()
+
         # Garder la sélection valide si la cible existe encore.
         if self.view_type == 'peep' and self.view_who not in self.peeps:
             self.view_who = None
@@ -1510,6 +2156,33 @@ class Game:
                 sw, sh = sprite.get_size()
                 pos = (int(bcx - sw // 2) + 1, int(bcy - sh // 2))
                 self.internal_surface.blit(sprite, pos)
+
+        # Affichage permanent du bouton pause s'il est actif
+        if getattr(self, 'paused', False):
+            idx_pause = self.button_sprite_indices.get('x_Pause')
+            if idx_pause is not None and idx_pause < len(self.button_sprites):
+                shape_pause = self.ui_buttons.get('x_Pause')
+                if shape_pause:
+                    bcx, bcy = shape_pause['c']
+                    sprite_pause = self.button_sprites[idx_pause]
+                    sw, sh = sprite_pause.get_size()
+                    pos = (int(bcx - sw // 2) + 1, int(bcy - sh // 2))
+                    self.internal_surface.blit(sprite_pause, pos)
+
+        # Affichage temporaire (clignotement) des autres boutons lorsqu'on les clique
+        if hasattr(self, 'last_button_click') and self.last_button_click is not None:
+            click_action, click_time = self.last_button_click
+            import time
+            if click_action != active_btn and (time.time() - click_time) < 0.15:
+                idx_click = self.button_sprite_indices.get(click_action)
+                if idx_click is not None and idx_click < len(self.button_sprites):
+                    shape_click = self.ui_buttons.get(click_action)
+                    if shape_click:
+                        bcx, bcy = shape_click['c']
+                        sprite_click = self.button_sprites[idx_click]
+                        sw, sh = sprite_click.get_size()
+                        pos_click = (int(bcx - sw // 2) + 1, int(bcy - sh // 2))
+                        self.internal_surface.blit(sprite_click, pos_click)
 
         cam_r, cam_c = self.camera.r, self.camera.c
         offset_y = getattr(self, 'quake_shake_y', 0)
@@ -1635,32 +2308,12 @@ class Game:
             
             self.internal_surface.blit(power_pointer, (px, py))
 
-        # Curseur custom affiché partout, curseur système toujours masqué (DESSINÉ APRÈS la minimap et le blason)
-        sprites = Peep.get_sprites()
-        mx, my = pygame.mouse.get_pos()
-        mx_screen = mx // self.display_scale
-        my_screen = my // self.display_scale
-        pygame.mouse.set_visible(False)
-        if self.papal_mode:
-            papal_cursor = sprites.get((4, 14))
-            if papal_cursor:
-                sprite_rect = papal_cursor.get_rect(topleft=(mx_screen, my_screen))
-                self.internal_surface.blit(papal_cursor, sprite_rect)
-        elif self.shield_mode:
-            shield_cursor = sprites.get((8, 8))
-            if shield_cursor:
-                sprite_rect = shield_cursor.get_rect(topleft=(mx_screen, my_screen))
-                self.internal_surface.blit(shield_cursor, sprite_rect)
-        else:
-            # Curseur par défaut (4,12) partout
-            default_cursor = sprites.get((4, 12))
-            if default_cursor:
-                sprite_rect = default_cursor.get_rect(topleft=(mx_screen, my_screen))
-                self.internal_surface.blit(default_cursor, sprite_rect)
-        
         # Scale internal surface to display window size
         scaled_surface = pygame.transform.scale(self.internal_surface, self.screen.get_size())
         self.screen.blit(scaled_surface, (0, 0))
+
+        # Dessiner le curseur par-dessus la surface finale redimensionnée
+        self.draw_scaled_mouse_cursor(self.screen)
 
         # Affichage debug en surimpression FINALE (directement sur self.screen)
         if self.show_debug:

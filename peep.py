@@ -468,12 +468,21 @@ class Peep:
                     # Le partenaire gagne
                     self.battle_partner.state = Peep.STATE_VICTORY_BEFORE
                     self.battle_partner.state_timer = 0.0
+                    
+                    if not hasattr(self.game_map, 'stats'):
+                        self.game_map.stats = {'battles_won': {'allies': 0, 'foes': 0}}
+                    self.game_map.stats['battles_won'][self.battle_partner.team] += 1
                 return
 
             if self.battle_partner and (self.battle_partner.dead or self.battle_partner.in_house):
                 # Le partenaire est mort ou a disparu, on gagne
                 self.state = Peep.STATE_VICTORY_BEFORE
                 self.state_timer = 0.0
+                
+                if self.battle_partner.dead:
+                    if not hasattr(self.game_map, 'stats'):
+                        self.game_map.stats = {'battles_won': {'allies': 0, 'foes': 0}}
+                    self.game_map.stats['battles_won'][self.team] += 1
                 return
             return # En bataille, on ne fait rien d'autre
 

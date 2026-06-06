@@ -589,7 +589,10 @@ class GameMap:
             for c in range(self.grid_width + 1):
                 self.corners[r][c] = value
 
-    def randomize(self, min_level=0, max_level=7):
+    def randomize(self, min_level=0, max_level=7, seed=None):
+        if seed is not None:
+            random.seed(seed)
+            
         self.corners[0][0] = random.randint(min_level, max_level)
         for c in range(1, self.grid_width + 1):
             prev = self.corners[0][c - 1]

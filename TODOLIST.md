@@ -14,6 +14,8 @@ TODO ---------------------------------------------------------------------------
 * v9+ Change map scale displayed from 8x8 to 16x16 and 32x32
 * v2 buildings distance needs to be reviewed + some new buildings diminish existing buildings
 * v2 peeps are not allowed to walk through rocks
+* v3 implement commands FX, Music, Pause, Balance, World, Tel
+* v3 review stats at game end (total knights during game, total towns owned)
 
 DONE ----------------------------------------------------------------------------------------------
 v0.1.0
@@ -110,3 +112,13 @@ v0.3.6
 72. Add god power: war
 73. Changed drwaing priority of papal & peeps: you want to see peeps
 74. Added autobuild terrain when War to let peeps encounter and fight on the center of the map
+v0.3.7
+75. quickfix on target variable initialisation
+76. changed UI : no more red borders on every command, closer to original
+77. added UIbuttons on the right : FX, Music, Pause, Balance, World, Tel - all to be implemented
+78. UIbuttons are now clicky and go embossed/white when clicked.
+79. Added end game window with stats
+80. Allow the mouse to move then on "ESC menu" and the "game end" window
+v0.4.0
+81. Added end game video
+82. Added levels in conquest mode, starting with world 1: GENESIS

@@ -16,11 +16,33 @@ class AIPlayer:
         self.command_cooldown = 15.0  # Changement de comportement des unités
         self.command_timer = 0.0
 
-    def set_difficulty(self, reaction_speed=1.5, power_rate=10.0, command_rate=15.0):
-        """Permet de configurer la difficulté de l'IA."""
-        self.terrain_action_cooldown = reaction_speed
-        self.power_action_cooldown = power_rate
-        self.command_cooldown = command_rate
+    def set_difficulty(self, reaction_speed=1, command_rate=1):
+        """
+        Configure la difficulté de l'IA avec des valeurs normalisées de 0 à 15.
+        - reaction_speed : 0 (1/3s) à 15 (3/s)
+        - command_rate : 0 (pas de changement), 1 (120s) à 15 (5s)
+        """
+        # Conversion reaction_speed (0=3.0s, 15=0.333s)
+        # On utilise une interpolation linéaire pour le délai : 0 -> 3.0, 15 -> 1/3
+        if reaction_speed <= 0:
+            self.terrain_action_cooldown = 3.0
+        else:
+            # Pente = (target_end - target_start) / (val_end - val_start)
+            # Pente = (0.333 - 3.0) / 15 = -2.667 / 15 = -0.1778
+            self.terrain_action_cooldown = max(0.333, 3.0 - (reaction_speed * 0.1778))
+
+        # Conversion command_rate (0=Infini, 1=120s, 15=5s)
+        if command_rate <= 0:
+            self.command_cooldown = 999999.0
+        elif command_rate == 1:
+            self.command_cooldown = 120.0
+        else:
+            # Entre 1 et 15 : interpolation de 120s à 5s
+            # Pente = (5 - 120) / (15 - 1) = -115 / 14 = -8.214
+            self.command_cooldown = 120.0 - ((command_rate - 1) * 8.214)
+            
+        # Power action reste constant ou on peut l'indexer sur reaction_speed s'il n'est plus paramétré
+        self.power_action_cooldown = 10.0 
 
     def update(self, dt):
         if getattr(self.game, 'is_battle_over', False):
