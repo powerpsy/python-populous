@@ -103,6 +103,10 @@ def game_loop(gs: GameState, renderer: Renderer, camera: Camera, sound: Sound) -
                 return name
         return None
 
+    def _update_active_command(cmd: str) -> None:
+        nonlocal active_command
+        active_command = cmd
+
     running = True
     while running:
         dt = clock.tick(FPS) / 1000.0
@@ -128,7 +132,7 @@ def game_loop(gs: GameState, renderer: Renderer, camera: Camera, sound: Sound) -
                 if btn:
                     renderer.set_pressed_button(btn)
                     _handle_button(btn, gs, camera, sound, mx_int, my_int,
-                                   lambda c: _update_active_command(c),
+                                   _update_active_command,
                                    active_command)
                     if btn in ('_go_build', '_go_fight', '_go_assemble', '_go_papal'):
                         active_command = btn
@@ -143,10 +147,6 @@ def game_loop(gs: GameState, renderer: Renderer, camera: Camera, sound: Sound) -
                             gs.raise_terrain(r, c)
                         else:
                             gs.lower_terrain(r, c)
-
-        def _update_active_command(cmd: str) -> None:
-            nonlocal active_command
-            active_command = cmd
 
         # --- Mise à jour de la caméra ---
         keys = _build_keys_dict(pygame.key.get_pressed())

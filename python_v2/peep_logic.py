@@ -91,7 +91,7 @@ DIRECTIONS_8 = {
     'S':  ( 1,  0),
     'SW': ( 1, -1),
     'W':  ( 0, -1),
-    'NW': (-1,  0),
+    'NW': (-1, -1),
 }
 
 # Cache partagé des sprites (initialisé par le renderer)

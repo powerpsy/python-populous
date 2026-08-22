@@ -540,12 +540,66 @@ class Renderer:
     # ------------------------------------------------------------------
 
     def _draw_buttons(self, surf, active_command: str, ui_state):
-        # Surbrillance du bouton actif
-        if self._pressed_button and self._pressed_button in self.button_idx:
-            idx = self.button_idx[self._pressed_button]
-            if idx < len(self.button_sprites):
-                # Légère teinte blanche pour indiquer le clic (rendu simplifié)
-                pass  # Le sprite de bouton contient déjà l'état pressé
+        """
+        Dessine les sprites de boutons sur l'interface.
+        Chaque bouton est identifié par son nom ; le sprite pressé est la ligne 1
+        du spritesheet ButtonUI (chaque sprite fait 34×17 px).
+        """
+        if not self.button_sprites:
+            return
+
+        cx, cy = 64, 168
+        cx2, cy2 = 256, 184
+        dx, dy = 16, 8
+        _positions: dict[str, tuple[int, int]] = {
+            '_raise_terrain': (cx + dx*2, cy + dy*2),
+            '_do_flood':      (cx - dx*3, cy - dy*5),
+            '_do_quake':      (cx - dx*1, cy - dy*3),
+            '_do_swamp':      (cx - dx*3, cy - dy*1),
+            '_do_papal':      (cx + dx*1, cy + dy*3),
+            '_do_shield':     (cx + dx*3, cy + dy*1),
+            '_do_volcano':    (cx - dx*3, cy - dy*3),
+            '_do_knight':     (cx - dx*2, cy - dy*2),
+            '_find_battle':   (cx + dx*3, cy + dy*3),
+            '_find_shield':   (cx,        cy        ),
+            '_find_papal':    (cx + dx*4, cy + dy*2),
+            '_find_knight':   (cx + dx*5, cy + dy*3),
+            'W':  (cx - dx*2, cy        ),
+            'NW': (cx - dx*1, cy - dy  ),
+            'N':  (cx,        cy - dy*2 ),
+            'NE': (cx + dx*1, cy - dy  ),
+            'E':  (cx + dx*2, cy        ),
+            'SW': (cx - dx*1, cy + dy  ),
+            'S':  (cx,        cy + dy*2 ),
+            'SE': (cx + dx*1, cy + dy  ),
+            '_go_papal':    (cx - dx*3, cy + dy*1),
+            '_go_build':    (cx - dx*2, cy + dy*2),
+            '_go_assemble': (cx - dx*1, cy + dy*3),
+            '_go_fight':    (cx - dx*3, cy + dy*3),
+            '_battle_over': (cx - dx*2, cy - dy*4),
+        }
+
+        sprite_w, sprite_h = 34, 17
+
+        for name, (bx, by) in _positions.items():
+            idx = self.button_idx.get(name)
+            if idx is None or idx >= len(self.button_sprites):
+                continue
+
+            # Choisir la rangée du sprite : 1 = pressé/actif, 0 = normal
+            is_active  = (name == active_command)
+            is_pressed = (name == self._pressed_button and self._pressed_timer > 0)
+            sp = self.button_sprites[idx]
+
+            dest_x = bx - sprite_w // 2
+            dest_y = by - sprite_h // 2
+            surf.blit(sp, (dest_x, dest_y))
+
+            # Teinte dorée sur le bouton de commande active
+            if is_active or is_pressed:
+                overlay = pygame.Surface((sprite_w, sprite_h), pygame.SRCALPHA)
+                overlay.fill((255, 220, 0, 80))
+                surf.blit(overlay, (dest_x, dest_y))
 
     def set_pressed_button(self, name: str) -> None:
         self._pressed_button = name
