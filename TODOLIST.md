@@ -1,21 +1,20 @@
 TODO ----------------------------------------------------------------------------------------------
 
-* v3 implement option "build possibility"
-* v3 implement option "build direction"
-* v3 implement option "build near town/people"
-* v2 Update powerjauge with a non linear progression linked to the POWER_COST matrix
-* v4 Add sound to actions/powers/combat
-* v5 Add a map generator (using a simple "key" to generate x/y peeps in different locations and different terrain typologies) --> simulate reproducible random maps as in the original game
-* v5 Add a home page and game mode/password selection
-* v5 Add a gameover page
-* v2 update battle outcome with weapon + ramdomness
-* v2 Add trees + logic to remove
+* v4 peeps are not allowed to walk through rocks
+* v4 Update powerjauge with a non linear progression linked to the POWER_COST matrix
+* v4 update battle outcome with weapon + ramdomness
+* v4 Add trees + logic to remove
+* v4 buildings distance needs to be reviewed + some new buildings diminish existing buildings
+* v4 implement commands FX, Music, Pause, Balance, World, Tel
+* v4 review stats at game end (total knights during game, total towns owned)
+* v4 Implement legacy balance options "options for good"
+* v5 implement option "build possibility"
+* v5 implement option "build direction"
+* v5 implement option "build near town/people"
+* v6 Add sound to actions/powers/combat
+* v7 Add a map generator (using a simple "key" to generate x/y peeps in different locations and different terrain typologies) --> simulate reproducible random maps as in the original game
 * v9+ Add internet multiplayer
 * v9+ Change map scale displayed from 8x8 to 16x16 and 32x32
-* v2 buildings distance needs to be reviewed + some new buildings diminish existing buildings
-* v2 peeps are not allowed to walk through rocks
-* v3 implement commands FX, Music, Pause, Balance, World, Tel
-* v3 review stats at game end (total knights during game, total towns owned)
 
 DONE ----------------------------------------------------------------------------------------------
 v0.1.0
