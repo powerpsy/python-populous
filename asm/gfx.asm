@@ -94,55 +94,60 @@ gfx_build_copper:
         lea     cop_list,a0
 
         ; --- Set bitplane pointers ---
-        ; Buffer is interleaved: plane0_row0, plane1_row0, … plane4_row0, plane0_row1 …
-        ; OR non-interleaved (simpler): all of plane0, all of plane1, …
-        ; We use non-interleaved (each bitplane is SCREEN_SIZE bytes apart).
+        ; Buffer is non-interleaved: plane0 occupies bytes 0..SCREEN_SIZE-1,
+        ; plane1 occupies SCREEN_SIZE..2*SCREEN_SIZE-1, etc.
+        ; Copper MOVE format: BPLxPTH receives address bits 31:16 (high word),
+        ;                     BPLxPTL receives address bits 15:0  (low word).
         move.l  gfx_show_buf,d0         ; Address of displayed buffer
 
         ; Plane 1 pointer
         move.l  d0,d1
+        swap    d1                      ; d1.w = high word of address
         move.w  #BPL1PTH,(a0)+
-        move.w  d1,(a0)+                ; High word
+        move.w  d1,(a0)+                ; PTH = high word
+        swap    d1                      ; d1.w = low word
         move.w  #BPL1PTL,(a0)+
-        swap    d1
-        move.w  d1,(a0)+
-        swap    d1
+        move.w  d1,(a0)+                ; PTL = low word
 
         ; Plane 2 pointer
-        add.l   #SCREEN_SIZE,d1
+        add.l   #SCREEN_SIZE,d0
+        move.l  d0,d1
+        swap    d1
         move.w  #BPL2PTH,(a0)+
         move.w  d1,(a0)+
+        swap    d1
         move.w  #BPL2PTL,(a0)+
-        swap    d1
         move.w  d1,(a0)+
-        swap    d1
 
         ; Plane 3 pointer
-        add.l   #SCREEN_SIZE,d1
+        add.l   #SCREEN_SIZE,d0
+        move.l  d0,d1
+        swap    d1
         move.w  #BPL3PTH,(a0)+
         move.w  d1,(a0)+
+        swap    d1
         move.w  #BPL3PTL,(a0)+
-        swap    d1
         move.w  d1,(a0)+
-        swap    d1
 
         ; Plane 4 pointer
-        add.l   #SCREEN_SIZE,d1
+        add.l   #SCREEN_SIZE,d0
+        move.l  d0,d1
+        swap    d1
         move.w  #BPL4PTH,(a0)+
         move.w  d1,(a0)+
+        swap    d1
         move.w  #BPL4PTL,(a0)+
-        swap    d1
         move.w  d1,(a0)+
-        swap    d1
 
         ; Plane 5 pointer
-        add.l   #SCREEN_SIZE,d1
+        add.l   #SCREEN_SIZE,d0
+        move.l  d0,d1
+        swap    d1
         move.w  #BPL5PTH,(a0)+
         move.w  d1,(a0)+
+        swap    d1
         move.w  #BPL5PTL,(a0)+
-        swap    d1
         move.w  d1,(a0)+
-        swap    d1
 
         ; --- Palette (written once, overwritten by gfx_set_palette) ---
         ; Initially load Populous palette  (filled by gfx_set_palette later)

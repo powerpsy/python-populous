@@ -382,7 +382,7 @@ peep_move_assemble:
         move.w  d0,d2
         move.w  PEEP_R(a1),best_r
         move.w  PEEP_C(a1),best_c
-        move.w  d1,d1
+        moveq   #1,d1                   ; mark that we found a valid friend
 .skip_p:
         add.l   #PEEP_SIZE,a1
         dbf     d4,.scan
@@ -598,13 +598,16 @@ peep_check_fusions:
         move.w  PEEP_C(a0),d1
         move.b  PEEP_TEAM(a0),d2
 
-        ; Inner scan
+        ; Inner scan: all peeps, skip self and already-dead
         lea     peep_data,a1
-        add.l   a1,#PEEP_SIZE           ; start at next peep
-        move.w  d7,d6
+        move.w  peep_count,d6
+        beq.s   .next_o
+        subq.w  #1,d6
 .inner:
         tst.w   d6
         blt.s   .next_o
+        cmp.a   a0,a1                   ; skip self
+        beq.s   .next_i
         btst    #PEEP_FLAG_DEAD_BIT,PEEP_FLAGS(a1)
         bne.s   .next_i
         cmp.b   PEEP_TEAM(a1),d2

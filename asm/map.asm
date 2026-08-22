@@ -89,12 +89,15 @@ map_randomize:
 .r_inner:
         move.w  d4,d2
 .c_inner:
+        ; Compute index into terrain_height array and keep it separate from the altitude
         TERRAIN_IDX d1,d2,d0
+        move.w  d0,ter_idx_tmp          ; save array index before overwriting d0
         lea     terrain_height,a0
-        move.b  (a0,d0.w),d0
+        move.b  (a0,d0.w),d0            ; d0 = current altitude at this corner
         cmp.b   #ALT_MAX,d0
         bge.s   .no_raise
-        addq.b  #1,(a0,d0.w)
+        move.w  ter_idx_tmp,d0          ; restore index
+        addq.b  #1,(a0,d0.w)            ; increment altitude using correct index
 .no_raise:
         addq.w  #1,d2
         cmp.w   #GRID_W,d2
@@ -620,17 +623,25 @@ map_do_swamp:
         rts
 
 ; ---------------------------------------------------------------------------
-; map_update_tile — recompute flags for a tile after terrain change
+; map_update_tile — recompute water flag for a tile after terrain change
 ; In:  d0.w=r, d1.w=c
 ; ---------------------------------------------------------------------------
 map_update_tile:
-        bsr     map_get_tile_min_alt
-        tst.b   d0
+        ; Save r,c since map_get_tile_min_alt trashes d1–d4
+        move.w  d0,-(sp)
+        move.w  d1,-(sp)
+        bsr     map_get_tile_min_alt    ; d0.b = min altitude
+        move.b  d0,d3                   ; keep altitude
+        move.w  (sp)+,d1                ; restore c
+        move.w  (sp)+,d0                ; restore r
+        tst.b   d3
         bne.s   .not_water
-        move.w  d0,d0
+        ; Altitude is 0 → mark as water
+        move.b  #TF_WATER,d2
         bsr     map_set_flag
         rts
 .not_water:
+        ; Altitude > 0 → clear water flag
         move.b  #TF_WATER,d2
         bsr     map_clear_flag
         rts
@@ -660,6 +671,7 @@ rnd_byte:
         section data_c,data_c
 
 rnd_seed:   dc.l    $deadbeef           ; LFSR seed (non-zero)
+ter_idx_tmp: dc.w   0                   ; temporary for map_randomize inner loop
 
         section bss_c,bss_c             ; uninitialized chip RAM
 
